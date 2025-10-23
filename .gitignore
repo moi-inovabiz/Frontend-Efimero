@@ -1,0 +1,48 @@
+# Archivos de inicio
+*.py[cod]
+__pycache__/
+
+# Entornos virtuales
+venv/
+env/
+.env
+
+# Modelos ML (pueden ser grandes)
+*.joblib
+*.pkl
+*.model
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase
+firebase-debug.log
+.firebase/
+
+# Node.js (frontend)
+node_modules/
+.next/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build outputs
+dist/
+build/
+
+# Coverage
+.coverage
+coverage/
+
+# Cache
+.cache/
+.pytest_cache/

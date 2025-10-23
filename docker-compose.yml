@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=true
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./backend:/app
+      - ./backend/models:/app/models
+    depends_on:
+      - firebase-emulator
+    networks:
+      - efimero-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000/api/v1
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - efimero-network
+
+  # Firebase Emulator for local development
+  firebase-emulator:
+    image: firebase/emulators
+    ports:
+      - "4000:4000"  # Emulator UI
+      - "8080:8080"  # Firestore
+      - "9000:9000"  # Auth
+    environment:
+      - FIRESTORE_EMULATOR_HOST=0.0.0.0:8080
+    networks:
+      - efimero-network
+
+networks:
+  efimero-network:
+    driver: bridge
+
+volumes:
+  models-data:

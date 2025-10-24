@@ -1,0 +1,50 @@
+# OpenSpec ignore patterns
+# Exclude heavy directories that don't need spec analysis
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+.venv/
+
+# Build outputs
+dist/
+build/
+.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# ML Models (can be large)
+*.joblib
+*.pkl
+*.model
+
+# Firebase
+firebase-debug.log
+.firebase/
+
+# Git
+.git/
+
+# Bolt specific
+.bolt/
+
+# Dependencies
+package-lock.json
+yarn.lock

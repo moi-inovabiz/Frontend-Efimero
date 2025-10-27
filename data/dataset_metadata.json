@@ -1,0 +1,69 @@
+{
+  "generated_at": "2025-10-27T14:30:06.892519",
+  "num_samples": 5000,
+  "features": [
+    "hour",
+    "day_of_week",
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+    "viewport_width",
+    "viewport_height",
+    "viewport_aspect_ratio",
+    "viewport_area_normalized",
+    "touch_enabled",
+    "device_pixel_ratio",
+    "prefers_dark_mode",
+    "avg_session_duration",
+    "total_clicks_last_week",
+    "scroll_depth_avg",
+    "error_rate_last_week",
+    "preferred_text_size",
+    "interaction_speed",
+    "user_group_density",
+    "locale_preference",
+    "accessibility_needs",
+    "network_speed",
+    "css_classes",
+    "--font-size-base",
+    "--spacing-factor",
+    "--color-primary-hue",
+    "--border-radius",
+    "--line-height"
+  ],
+  "css_classes_vocabulary": [
+    "densidad-baja",
+    "densidad-media",
+    "densidad-alta",
+    "fuente-sans",
+    "fuente-serif",
+    "fuente-mono",
+    "modo-claro",
+    "modo-nocturno",
+    "modo-auto"
+  ],
+  "css_variables_ranges": {
+    "--font-size-base": [
+      0.75,
+      1.5
+    ],
+    "--spacing-factor": [
+      0.5,
+      2.0
+    ],
+    "--color-primary-hue": [
+      0,
+      360
+    ],
+    "--border-radius": [
+      0.0,
+      1.0
+    ],
+    "--line-height": [
+      1.2,
+      1.8
+    ]
+  },
+  "description": "Synthetic training data for Frontend Ef\u00edmero XGBoost models"
+}

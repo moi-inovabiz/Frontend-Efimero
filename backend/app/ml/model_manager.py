@@ -254,6 +254,14 @@ class ModelManager:
                 cls._feature_scaler = joblib.load(scaler_path)
                 logger.info("✅ Feature Scaler individual cargado")
             
+            # Cargar Label Encoder individual
+            label_encoder_path = models_path / "label_encoder.joblib"
+            if label_encoder_path.exists():
+                cls._label_encoder = joblib.load(label_encoder_path)
+                logger.info("✅ Label Encoder individual cargado")
+            else:
+                logger.warning(f"⚠️  Label encoder individual no encontrado: {label_encoder_path}")
+            
             # Cargar metadata si existe
             try:
                 metadata_files = [
@@ -268,6 +276,11 @@ class ModelManager:
                             if cls._model_metadata is None:
                                 cls._model_metadata = {"training_results": {}}
                             cls._model_metadata["training_results"].update(metadata)
+                            
+                            # Extraer target_columns específicamente del regressor metadata
+                            if "regressor_metadata.json" in str(metadata_file) and "target_columns" in metadata:
+                                cls._target_columns = metadata["target_columns"]
+                                logger.info(f"✅ Target columns cargadas: {cls._target_columns}")
                         
                 logger.info("✅ Metadata de modelos individuales cargada")
                 
@@ -326,11 +339,13 @@ class ModelManager:
             
             # Mapear predicción a clases CSS usando mapeo real
             css_classes = cls._map_prediction_to_css_classes(prediction)
-            confidence = float(np.max(prediction_proba))
+            
+            # Calcular confianza detallada
+            confidence_data = cls._calculate_classification_confidence(prediction_proba, prediction)
             
             return {
                 "classes": css_classes,
-                "confidence": confidence,
+                "confidence": confidence_data,
                 "raw_prediction": int(prediction),
                 "model_type": "dual" if cls._class_mappings else "individual"
             }
@@ -377,12 +392,12 @@ class ModelManager:
             # Mapear predicción a variables CSS
             css_variables = cls._map_prediction_to_css_variables(prediction)
             
-            # Calcular confianza basada en metadata o usar valor por defecto
-            confidence = cls._calculate_regression_confidence(prediction)
+            # Calcular confianza detallada basada en metadata
+            confidence_data = cls._calculate_regression_confidence(prediction)
             
             return {
                 "variables": css_variables,
-                "confidence": confidence,
+                "confidence": confidence_data,
                 "raw_prediction": prediction.tolist() if hasattr(prediction, 'tolist') else prediction,
                 "model_type": "dual" if cls._target_scaler else "individual"
             }
@@ -419,14 +434,28 @@ class ModelManager:
             class_result = cls.predict_classes(features)
             value_result = cls.predict_values(features)
             
-            # Combinar resultados
+            # Combinar resultados con confianza detallada
+            classifier_confidence = class_result["confidence"]
+            regressor_confidence = value_result["confidence"]
+            
+            # Calcular confianza combinada usando los scores
+            combined_score = (classifier_confidence["score"] + regressor_confidence["score"]) / 2
+            
             return {
                 "css_classes": class_result["classes"],
                 "css_variables": value_result["variables"],
                 "confidence": {
-                    "classifier": class_result["confidence"],
-                    "regressor": value_result["confidence"],
-                    "combined": (class_result["confidence"] + value_result["confidence"]) / 2
+                    "classifier": classifier_confidence,
+                    "regressor": regressor_confidence,
+                    "combined": {
+                        "score": combined_score,
+                        "quality": cls._determine_combined_quality(classifier_confidence["quality"], regressor_confidence["quality"]),
+                        "breakdown": {
+                            "classification_contribution": classifier_confidence["score"] / 100.0,
+                            "regression_contribution": regressor_confidence["score"] / 100.0,
+                            "overall_certainty": "high" if combined_score > 80 else "medium" if combined_score > 60 else "low"
+                        }
+                    }
                 },
                 "model_info": {
                     "classifier_type": class_result.get("model_type", "unknown"),
@@ -448,24 +477,93 @@ class ModelManager:
     @classmethod
     def _map_prediction_to_css_classes(cls, prediction: Any) -> List[str]:
         """
-        Mapea la predicción del clasificador a clases CSS usando mapeo real.
+        Mapea la predicción del clasificador a clases CSS usando label encoder real.
         """
+        try:
+            # Usar label encoder real si está disponible
+            if cls._label_encoder is not None:
+                # Decodificar la predicción usando el label encoder entrenado
+                decoded_class = cls._label_encoder.inverse_transform([prediction])[0]
+                
+                # El label encoder devuelve una clase única, convertir a lista
+                # Si la clase contiene múltiples elementos separados por |, dividir
+                if isinstance(decoded_class, str) and '|' in decoded_class:
+                    css_classes = [cls.strip() for cls in decoded_class.split('|')]
+                elif isinstance(decoded_class, str) and ',' in decoded_class:
+                    css_classes = [cls.strip() for cls in decoded_class.split(',')]
+                else:
+                    # Para clases individuales, usar mapeo lógico a múltiples clases CSS
+                    css_classes = cls._expand_single_class_to_css_list(decoded_class)
+                
+                logger.debug(f"🎯 Predicción decodificada: {prediction} -> {decoded_class} -> {css_classes}")
+                return css_classes
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Error usando label encoder: {e}, usando mapeo fallback")
+        
+        # Fallback a mapeo de clases de metadatos si disponible
         if cls._class_mappings and prediction in cls._class_mappings:
             return cls._class_mappings[prediction]
         
-        # Fallback a mapeo básico si no hay mapeo entrenado
+        # Fallback final a mapeo básico
         basic_mapping = {
             0: ["densidad-baja", "fuente-sans", "modo-claro"],
-            1: ["densidad-media", "fuente-serif", "modo-claro"],
+            1: ["densidad-media", "fuente-serif", "modo-claro"], 
             2: ["densidad-alta", "fuente-mono", "modo-nocturno"],
         }
         
-        return basic_mapping.get(prediction % 3, ["densidad-media", "fuente-sans", "modo-claro"])
+        mapped_classes = basic_mapping.get(prediction % 3, ["densidad-media", "fuente-sans", "modo-claro"])
+        logger.debug(f"🔄 Usando mapeo básico: {prediction} -> {mapped_classes}")
+        return mapped_classes
+    
+    @classmethod
+    def _expand_single_class_to_css_list(cls, decoded_class: str) -> List[str]:
+        """
+        Expande una clase individual a una lista de clases CSS relacionadas.
+        Usado cuando el label encoder devuelve una sola clase.
+        """
+        # Mapeo inteligente de clases individuales a múltiples clases CSS
+        class_expansions = {
+            # Densidad
+            "densidad-baja": ["densidad-baja", "espaciado-amplio", "elementos-dispersos"],
+            "densidad-media": ["densidad-media", "espaciado-normal", "elementos-balanceados"],
+            "densidad-alta": ["densidad-alta", "espaciado-compacto", "elementos-densos"],
+            
+            # Tipografía
+            "fuente-sans": ["fuente-sans", "texto-moderno", "legibilidad-alta"],
+            "fuente-serif": ["fuente-serif", "texto-elegante", "lectura-formal"],
+            "fuente-mono": ["fuente-mono", "texto-codigo", "caracteres-fijos"],
+            
+            # Modo de color
+            "modo-claro": ["modo-claro", "contraste-normal", "fondo-blanco"],
+            "modo-nocturno": ["modo-nocturno", "contraste-alto", "fondo-oscuro"],
+            "modo-auto": ["modo-auto", "adaptacion-automatica", "preferencia-sistema"],
+            
+            # Accesibilidad
+            "accesibilidad-alta": ["accesibilidad-alta", "contraste-maximo", "navegacion-asistida"],
+            "accesibilidad-media": ["accesibilidad-media", "contraste-bueno", "elementos-claros"],
+            
+            # Interacción
+            "interaccion-tactil": ["interaccion-tactil", "botones-grandes", "gestos-habilitados"],
+            "interaccion-cursor": ["interaccion-cursor", "botones-precisos", "hover-efectos"]
+        }
+        
+        # Si encontramos expansión específica, usarla
+        if decoded_class in class_expansions:
+            return class_expansions[decoded_class]
+        
+        # Fallback: crear lista con la clase original y clases complementarias
+        return [
+            decoded_class,
+            "adaptativo-ia",
+            "prediccion-ml"
+        ]
     
     @classmethod
     def _map_prediction_to_css_variables(cls, prediction: Any) -> Dict[str, str]:
         """
         Mapea la predicción del regresor a variables CSS usando configuración real.
+        Usa target_columns del metadata y aplica rangos CSS apropiados.
         """
         if cls._target_columns and hasattr(prediction, '__len__') and len(prediction) >= len(cls._target_columns):
             # Usar mapeo basado en target_columns entrenados
@@ -473,53 +571,251 @@ class ModelManager:
             for i, target_name in enumerate(cls._target_columns):
                 value = prediction[i]
                 
-                # Formatear según el tipo de variable CSS
+                # Formatear según el tipo de variable CSS con rangos más precisos
                 if target_name == '--font-size-base':
-                    css_variables[target_name] = f"{max(0.8, min(2.0, value)):.3f}rem"
+                    # Font size: 0.75rem a 2.0rem (12px a 32px)
+                    normalized_value = max(0.75, min(2.0, float(value)))
+                    css_variables[target_name] = f"{normalized_value:.3f}rem"
                 elif target_name == '--spacing-factor':
-                    css_variables[target_name] = f"{max(0.5, min(2.0, value)):.3f}"
+                    # Spacing factor: 0.5 a 2.5 (multiplier de espaciado)
+                    normalized_value = max(0.5, min(2.5, float(value)))
+                    css_variables[target_name] = f"{normalized_value:.3f}"
                 elif target_name == '--color-primary-hue':
-                    css_variables[target_name] = f"{max(0, min(360, value)):.0f}"
+                    # Color hue: 0 a 360 grados
+                    if value <= 1.0:  # Si viene normalizado 0-1
+                        normalized_value = max(0, min(360, float(value) * 360))
+                    else:  # Si ya viene en grados
+                        normalized_value = max(0, min(360, float(value)))
+                    css_variables[target_name] = f"{normalized_value:.0f}"
                 elif target_name == '--border-radius':
-                    css_variables[target_name] = f"{max(0, min(1.0, value)):.3f}rem"
+                    # Border radius: 0rem a 1.5rem
+                    normalized_value = max(0.0, min(1.5, float(value)))
+                    css_variables[target_name] = f"{normalized_value:.3f}rem"
                 elif target_name == '--line-height':
-                    css_variables[target_name] = f"{max(1.0, min(2.0, value)):.3f}"
+                    # Line height: 1.0 a 2.5 (ratio)
+                    normalized_value = max(1.0, min(2.5, float(value)))
+                    css_variables[target_name] = f"{normalized_value:.3f}"
                 else:
-                    css_variables[target_name] = f"{value:.3f}"
+                    # Para variables CSS desconocidas, formatear como valor genérico
+                    css_variables[target_name] = f"{float(value):.3f}"
             
+            logger.debug(f"🎨 CSS variables mapeadas desde target_columns: {css_variables}")
             return css_variables
         
-        # Fallback a mapeo básico
+        # Fallback a mapeo básico si no hay target_columns
         if hasattr(prediction, '__len__') and len(prediction) >= 3:
-            return {
-                "--font-size-base": f"{max(0.8, min(2.0, prediction[0])):.3f}rem",
-                "--spacing-factor": f"{max(0.5, min(2.0, prediction[1])):.3f}",
-                "--color-primary-hue": f"{max(0, min(360, prediction[2] * 360 if prediction[2] <= 1 else prediction[2])):.0f}",
-                "--border-radius": f"{max(0, min(1.0, prediction[3] if len(prediction) > 3 else 0.25)):.3f}rem",
-                "--line-height": f"{max(1.0, min(2.0, prediction[4] if len(prediction) > 4 else 1.4)):.3f}"
+            fallback_variables = {
+                "--font-size-base": f"{max(0.75, min(2.0, float(prediction[0]))):.3f}rem",
+                "--spacing-factor": f"{max(0.5, min(2.5, float(prediction[1]))):.3f}",
+                "--color-primary-hue": f"{max(0, min(360, float(prediction[2]) * 360 if prediction[2] <= 1 else prediction[2])):.0f}",
+                "--border-radius": f"{max(0.0, min(1.5, float(prediction[3]) if len(prediction) > 3 else 0.25)):.3f}rem",
+                "--line-height": f"{max(1.0, min(2.5, float(prediction[4]) if len(prediction) > 4 else 1.4)):.3f}"
             }
+            logger.debug(f"🔄 Usando mapeo fallback para CSS variables: {fallback_variables}")
+            return fallback_variables
         else:
-            return cls._get_default_css_variables()
+            # Usar variables por defecto
+            default_variables = cls._get_default_css_variables()
+            logger.debug(f"⚠️  Usando variables CSS por defecto: {default_variables}")
+            return default_variables
     
     @classmethod
-    def _calculate_regression_confidence(cls, prediction: Any) -> float:
+    def _calculate_regression_confidence(cls, prediction: Any) -> Dict[str, Any]:
         """
-        Calcula confianza para regresión usando metadata del modelo.
+        Calcula confianza detallada para regresión usando metadata del modelo.
         """
-        if cls._model_metadata and 'training_results' in cls._model_metadata:
-            # Usar R² del entrenamiento como proxy de confianza
-            r2_score = cls._model_metadata['training_results']['regressor']['test_r2_score']
-            return max(0.3, min(1.0, r2_score))  # Clamp entre 30% y 100%
+        confidence_data = {
+            "score": 75.0,  # Score base por defecto
+            "quality": "medium",
+            "metrics": {},
+            "prediction_variance": 0.0,
+            "reliability_factors": {}
+        }
         
-        # Fallback a confianza base
-        return 0.85
+        if cls._model_metadata and 'training_results' in cls._model_metadata:
+            try:
+                training_results = cls._model_metadata['training_results']
+                
+                # Para modelos duales
+                if 'regressor' in training_results:
+                    regressor_results = training_results['regressor']
+                    r2_score = regressor_results.get('test_r2_score', 0.5)
+                    mae = regressor_results.get('test_mae', None)
+                    rmse = regressor_results.get('test_rmse', None)
+                # Para modelos individuales
+                elif 'test_r2_score' in training_results:
+                    r2_score = training_results['test_r2_score']
+                    mae = training_results.get('test_mae', None)
+                    rmse = training_results.get('test_rmse', None)
+                else:
+                    r2_score = 0.5  # Fallback si no encontramos R²
+                    mae = None
+                    rmse = None
+                
+                # Convertir R² a score de confianza (30% min, 95% max)
+                base_confidence = max(30.0, min(95.0, r2_score * 100))
+                confidence_data["score"] = base_confidence
+                
+                # Determinar calidad basada en R²
+                if r2_score >= 0.8:
+                    confidence_data["quality"] = "high"
+                elif r2_score >= 0.6:
+                    confidence_data["quality"] = "medium"
+                elif r2_score >= 0.4:
+                    confidence_data["quality"] = "low"
+                else:
+                    confidence_data["quality"] = "very_low"
+                
+                # Agregar métricas disponibles
+                confidence_data["metrics"] = {
+                    "r2_score": r2_score,
+                    "mae": mae,
+                    "rmse": rmse
+                }
+                
+                # Factores de confiabilidad
+                confidence_data["reliability_factors"] = {
+                    "model_performance": r2_score,
+                    "prediction_stability": min(1.0, base_confidence / 100.0),
+                    "data_quality": 0.85 if r2_score > 0.5 else 0.6
+                }
+                
+            except (KeyError, TypeError) as e:
+                logger.debug(f"⚠️  Error accediendo metadata de regresión: {e}")
+        
+        return confidence_data
+    
+    @classmethod
+    def _calculate_classification_confidence(cls, prediction_proba: Any, prediction: Any) -> Dict[str, Any]:
+        """
+        Calcula confianza detallada para clasificación usando probabilidades y metadata.
+        """
+        # Probabilidad máxima como base
+        max_prob = float(np.max(prediction_proba))
+        
+        confidence_data = {
+            "score": max_prob * 100,  # Convertir a porcentaje
+            "quality": "medium",
+            "metrics": {},
+            "class_probabilities": {},
+            "prediction_certainty": "medium",
+            "reliability_factors": {}
+        }
+        
+        try:
+            # Métricas detalladas de probabilidades
+            proba_array = np.array(prediction_proba).flatten()
+            confidence_data["metrics"] = {
+                "max_probability": max_prob,
+                "min_probability": float(np.min(proba_array)),
+                "probability_spread": float(np.std(proba_array)),
+                "entropy": float(-np.sum(proba_array * np.log(proba_array + 1e-8)))  # Entropía
+            }
+            
+            # Determinar certeza de predicción
+            if max_prob >= 0.9:
+                confidence_data["prediction_certainty"] = "very_high"
+                confidence_data["quality"] = "high"
+            elif max_prob >= 0.75:
+                confidence_data["prediction_certainty"] = "high"
+                confidence_data["quality"] = "high"
+            elif max_prob >= 0.6:
+                confidence_data["prediction_certainty"] = "medium"
+                confidence_data["quality"] = "medium"
+            elif max_prob >= 0.45:
+                confidence_data["prediction_certainty"] = "low"
+                confidence_data["quality"] = "low"
+            else:
+                confidence_data["prediction_certainty"] = "very_low"
+                confidence_data["quality"] = "very_low"
+            
+            # Información del modelo desde metadata
+            if cls._model_metadata and 'training_results' in cls._model_metadata:
+                training_results = cls._model_metadata['training_results']
+                
+                # Para modelos duales
+                if 'classifier' in training_results:
+                    classifier_results = training_results['classifier']
+                    f1_score = classifier_results.get('test_f1_score', 0.75)
+                    accuracy = classifier_results.get('test_accuracy', 0.75)
+                # Para modelos individuales
+                else:
+                    f1_score = training_results.get('test_f1_score', 0.75)
+                    accuracy = training_results.get('test_accuracy', 0.75)
+                
+                confidence_data["metrics"]["model_f1_score"] = f1_score
+                confidence_data["metrics"]["model_accuracy"] = accuracy
+                
+                # Factores de confiabilidad
+                confidence_data["reliability_factors"] = {
+                    "model_performance": f1_score,
+                    "prediction_probability": max_prob,
+                    "class_separation": float(max_prob - np.mean(proba_array)),
+                    "data_consistency": accuracy
+                }
+            
+            # Probabilidades por clase si tenemos el label encoder
+            if cls._label_encoder is not None and len(proba_array) <= len(cls._label_encoder.classes_):
+                class_names = cls._label_encoder.classes_[:len(proba_array)]
+                confidence_data["class_probabilities"] = {
+                    str(class_name): float(prob) 
+                    for class_name, prob in zip(class_names, proba_array)
+                }
+            
+        except Exception as e:
+            logger.debug(f"⚠️  Error calculando confianza detallada de clasificación: {e}")
+        
+        return confidence_data
+    
+    @classmethod
+    def _determine_combined_quality(cls, classifier_quality: str, regressor_quality: str) -> str:
+        """
+        Determina la calidad combinada basada en las calidades individuales.
+        """
+        quality_scores = {
+            "very_low": 1,
+            "low": 2, 
+            "medium": 3,
+            "high": 4,
+            "very_high": 5
+        }
+        
+        classifier_score = quality_scores.get(classifier_quality, 3)
+        regressor_score = quality_scores.get(regressor_quality, 3)
+        
+        # Promedio de calidades
+        combined_score = (classifier_score + regressor_score) / 2
+        
+        # Mapear de vuelta a texto
+        if combined_score >= 4.5:
+            return "very_high"
+        elif combined_score >= 3.5:
+            return "high"
+        elif combined_score >= 2.5:
+            return "medium"
+        elif combined_score >= 1.5:
+            return "low"
+        else:
+            return "very_low"
     
     @classmethod
     def _get_default_class_prediction(cls) -> Dict[str, Any]:
         """Predicción de clases por defecto en caso de error."""
         return {
             "classes": ["densidad-media", "fuente-sans", "modo-claro"],
-            "confidence": 0.5,
+            "confidence": {
+                "score": 50.0,
+                "quality": "medium",
+                "metrics": {},
+                "class_probabilities": {},
+                "prediction_certainty": "fallback",
+                "reliability_factors": {
+                    "model_performance": 0.5,
+                    "prediction_probability": 0.5,
+                    "class_separation": 0.0,
+                    "data_consistency": 0.5
+                }
+            },
             "raw_prediction": 0,
             "model_type": "fallback"
         }
@@ -529,7 +825,17 @@ class ModelManager:
         """Predicción de valores por defecto en caso de error."""
         return {
             "variables": cls._get_default_css_variables(),
-            "confidence": 0.5,
+            "confidence": {
+                "score": 50.0,
+                "quality": "medium",
+                "metrics": {},
+                "prediction_variance": 0.0,
+                "reliability_factors": {
+                    "model_performance": 0.5,
+                    "prediction_stability": 0.5,
+                    "data_quality": 0.5
+                }
+            },
             "raw_prediction": [1.0, 1.0, 180, 0.25, 1.4],
             "model_type": "fallback"
         }
@@ -548,13 +854,47 @@ class ModelManager:
     @classmethod
     def _get_default_dual_prediction(cls) -> Dict[str, Any]:
         """Predicción dual por defecto en caso de error."""
+        default_classifier_confidence = {
+            "score": 50.0,
+            "quality": "medium",
+            "metrics": {},
+            "class_probabilities": {},
+            "prediction_certainty": "fallback",
+            "reliability_factors": {
+                "model_performance": 0.5,
+                "prediction_probability": 0.5,
+                "class_separation": 0.0,
+                "data_consistency": 0.5
+            }
+        }
+        
+        default_regressor_confidence = {
+            "score": 50.0,
+            "quality": "medium",
+            "metrics": {},
+            "prediction_variance": 0.0,
+            "reliability_factors": {
+                "model_performance": 0.5,
+                "prediction_stability": 0.5,
+                "data_quality": 0.5
+            }
+        }
+        
         return {
             "css_classes": ["densidad-media", "fuente-sans", "modo-claro"],
             "css_variables": cls._get_default_css_variables(),
             "confidence": {
-                "classifier": 0.5,
-                "regressor": 0.5,
-                "combined": 0.5
+                "classifier": default_classifier_confidence,
+                "regressor": default_regressor_confidence,
+                "combined": {
+                    "score": 50.0,
+                    "quality": "medium",
+                    "breakdown": {
+                        "classification_contribution": 0.5,
+                        "regression_contribution": 0.5,
+                        "overall_certainty": "fallback"
+                    }
+                }
             },
             "model_info": {
                 "classifier_type": "fallback",

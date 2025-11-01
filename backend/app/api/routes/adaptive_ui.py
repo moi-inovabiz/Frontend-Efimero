@@ -73,3 +73,94 @@ async def collect_feedback(
             status_code=500,
             detail=f"Error almacenando feedback: {str(e)}"
         )
+
+
+@router.get("/system/status")
+async def get_system_status():
+    """
+    Endpoint para monitoreo del sistema y estadísticas de cache.
+    Útil para health checks y análisis de rendimiento.
+    """
+    try:
+        service = AdaptiveUIService()
+        status = service.get_system_status()
+        return status
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo estado del sistema: {str(e)}"
+        )
+
+
+@router.post("/cache/clear")
+async def clear_prediction_cache(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Endpoint para limpiar manualmente el cache de predicciones.
+    Requiere autenticación para seguridad.
+    """
+    try:
+        # Verificar que el usuario tenga permisos (opcional: agregar verificación de roles)
+        if not current_user.get("is_authenticated", False):
+            raise HTTPException(
+                status_code=401,
+                detail="Se requiere autenticación para limpiar cache"
+            )
+        
+        service = AdaptiveUIService()
+        result = service.clear_prediction_cache()
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error limpiando cache: {str(e)}"
+        )
+
+
+@router.get("/cache/stats")
+async def get_cache_statistics():
+    """
+    Endpoint para obtener estadísticas detalladas del cache.
+    No requiere autenticación para facilitar monitoreo.
+    """
+    try:
+        service = AdaptiveUIService()
+        cache_stats = service.cache.get_stats()
+        return {
+            "cache_performance": cache_stats,
+            "recommendations": _generate_cache_recommendations(cache_stats)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo estadísticas de cache: {str(e)}"
+        )
+
+
+def _generate_cache_recommendations(cache_stats: Dict[str, Any]) -> Dict[str, str]:
+    """Genera recomendaciones basadas en las estadísticas del cache."""
+    recommendations = {}
+    
+    hit_rate = cache_stats["cache_efficiency"]["hit_rate_percent"]
+    memory_utilization = cache_stats["memory_usage"]["utilization_percent"]
+    
+    if hit_rate < 30:
+        recommendations["hit_rate"] = "Tasa de aciertos baja. Considerar aumentar TTL o revisar estrategia de keys."
+    elif hit_rate > 80:
+        recommendations["hit_rate"] = "Excelente tasa de aciertos del cache."
+    
+    if memory_utilization > 90:
+        recommendations["memory"] = "Alto uso de memoria. Considerar aumentar límite o reducir TTL."
+    elif memory_utilization < 20:
+        recommendations["memory"] = "Bajo uso de memoria. Podría aumentar tamaño de cache."
+    
+    if not recommendations:
+        recommendations["overall"] = "Cache funcionando óptimamente."
+    
+    return recommendations

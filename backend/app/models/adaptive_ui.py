@@ -53,8 +53,8 @@ class AdaptiveUIResponse(BaseModel):
     """Response con tokens de diseño (salida FASE 2)."""
     
     design_tokens: DesignTokens
-    prediction_confidence: Dict[str, float] = Field(
-        description="Confianza del modelo para clasificación y regresión"
+    prediction_confidence: Dict[str, Any] = Field(
+        description="Confianza detallada del modelo para clasificación y regresión con métricas completas"
     )
     processing_time_ms: float
     

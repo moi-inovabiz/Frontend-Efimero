@@ -32,9 +32,14 @@ class Settings(BaseSettings):
     
     # ML Models Configuration
     MODELS_PATH: str = "models"
-    CLASSIFIER_MODEL_NAME: str = "xgboost_classifier.joblib"
-    REGRESSOR_MODEL_NAME: str = "xgboost_regressor.joblib"
-    SCALER_MODEL_NAME: str = "feature_scaler.joblib"
+    # Modelos duales (preferidos)
+    CLASSIFIER_MODEL_NAME: str = "xgboost_classifier_dual.joblib"
+    REGRESSOR_MODEL_NAME: str = "xgboost_regressor_dual.joblib"
+    SCALER_MODEL_NAME: str = "feature_scaler_dual.joblib"
+    # Modelos individuales (fallback)
+    CLASSIFIER_INDIVIDUAL_NAME: str = "xgboost_classifier.joblib"
+    REGRESSOR_INDIVIDUAL_NAME: str = "xgboost_regressor.joblib"
+    SCALER_INDIVIDUAL_NAME: str = "feature_scaler.joblib"
     
     # Performance Settings
     MAX_CONCURRENT_REQUESTS: int = 100

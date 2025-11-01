@@ -1,0 +1,107 @@
+{
+  "training_results": {
+    "best_params": {
+      "estimator__colsample_bytree": 0.8,
+      "estimator__learning_rate": 0.05,
+      "estimator__max_depth": 3,
+      "estimator__n_estimators": 100,
+      "estimator__subsample": 0.8
+    },
+    "best_cv_rmse": 0.7343751181641999,
+    "test_rmse": 0.7377847774347661,
+    "test_mae": 0.5615083675415131,
+    "test_r2_score": 0.46674593803670417,
+    "cv_rmse_mean": 0.7345157472880333,
+    "cv_rmse_std": 0.010590417361400685,
+    "target_metrics": {
+      "--font-size-base": {
+        "mse": 0.569846140086406,
+        "rmse": 0.7548815404329384,
+        "mae": 0.6062058749189878,
+        "r2_score": 0.4610186075312349
+      },
+      "--spacing-factor": {
+        "mse": 0.3907402645545763,
+        "rmse": 0.6250922048422747,
+        "mae": 0.49497810788691854,
+        "r2_score": 0.623818207757321
+      },
+      "--color-primary-hue": {
+        "mse": 0.5461636748970438,
+        "rmse": 0.7390288728439801,
+        "mae": 0.460075952405035,
+        "r2_score": 0.46580686741828026
+      },
+      "--border-radius": {
+        "mse": 0.7208871296225002,
+        "rmse": 0.8490507226441187,
+        "mae": 0.6824473182477884,
+        "r2_score": 0.283758582273551
+      },
+      "--line-height": {
+        "mse": 0.4939946799118103,
+        "rmse": 0.7028475509751815,
+        "mae": 0.5638345842488341,
+        "r2_score": 0.499327425203134
+      }
+    },
+    "n_targets": 5,
+    "target_columns": [
+      "--font-size-base",
+      "--spacing-factor",
+      "--color-primary-hue",
+      "--border-radius",
+      "--line-height"
+    ]
+  },
+  "categorical_mappings": {
+    "user_group_density": {
+      "low": 0,
+      "medium": 1,
+      "high": 2
+    },
+    "locale_preference": {
+      "en": 0,
+      "es": 1,
+      "de": 2,
+      "fr": 3
+    },
+    "network_speed": {
+      "slow": 0,
+      "medium": 1,
+      "fast": 2
+    }
+  },
+  "feature_columns": [
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+    "viewport_width",
+    "viewport_height",
+    "viewport_aspect_ratio",
+    "viewport_area_normalized",
+    "touch_enabled",
+    "device_pixel_ratio",
+    "prefers_dark_mode",
+    "avg_session_duration",
+    "total_clicks_last_week",
+    "scroll_depth_avg",
+    "error_rate_last_week",
+    "preferred_text_size",
+    "interaction_speed",
+    "user_group_density",
+    "locale_preference",
+    "accessibility_needs",
+    "network_speed"
+  ],
+  "target_columns": [
+    "--font-size-base",
+    "--spacing-factor",
+    "--color-primary-hue",
+    "--border-radius",
+    "--line-height"
+  ],
+  "model_type": "XGBoostRegressor",
+  "multioutput": true
+}

@@ -29,6 +29,10 @@ class AdaptiveUIService:
     def __init__(self):
         self.firebase_service = FirebaseService()
         self.feature_processor = FeatureProcessor()
+        self.model_manager = ModelManager()
+        
+        # Los modelos se cargarán de forma lazy durante la primera predicción
+        logger.info("✅ AdaptiveUIService: Servicio inicializado - Modelos se cargarán automáticamente")
     
     
     async def generate_adaptive_design(
@@ -53,16 +57,65 @@ class AdaptiveUIService:
             social_context = await self.firebase_service.get_social_context()
             
             # 3. Preparar features para la IA
-            features = self.feature_processor.prepare_features(
-                user_context=user_context,
-                historical_data=historical_data,
-                social_context=social_context,
-                is_authenticated=is_authenticated
-            )
+            try:
+                features = self.feature_processor.prepare_features(
+                    user_context=user_context,
+                    historical_data=historical_data,
+                    social_context=social_context,
+                    is_authenticated=is_authenticated
+                )
+                logger.info(f"✅ Features preparadas: {len(features) if features is not None else 0} características")
+            except Exception as e:
+                logger.error(f"❌ Error preparando features: {e}")
+                # Usar features mínimas como fallback
+                features = self.feature_processor.get_default_features()
             
             # 4. DOBLE PREDICCIÓN OBLIGATORIA (XGBoost)
-            classifier_prediction = ModelManager.predict_classes(features)
-            regressor_prediction = ModelManager.predict_values(features)
+            try:
+                # Usar predicción dual integrada del ModelManager
+                prediction_result = self.model_manager.predict_dual(
+                    user_context=user_context,
+                    historical_data=historical_data,
+                    social_context=social_context,
+                    is_authenticated=is_authenticated
+                )
+                
+                # Extraer resultados
+                classifier_prediction = {
+                    "classes": prediction_result["css_classes"],
+                    "confidence": prediction_result["confidence"]
+                }
+                regressor_prediction = {
+                    "variables": prediction_result["css_variables"],
+                    "confidence": prediction_result["confidence"]
+                }
+                
+                logger.info(f"✅ Predicción dual completada - Confianza: {prediction_result['confidence']:.2f}%")
+                
+            except Exception as e:
+                logger.error(f"❌ Error en predicción ML: {e}")
+                # Fallback a predicciones por separado
+                try:
+                    classifier_prediction = self.model_manager.predict_classes(features)
+                    regressor_prediction = self.model_manager.predict_values(features)
+                    logger.info("✅ Predicciones separadas completadas como fallback")
+                except Exception as fallback_error:
+                    logger.error(f"❌ Error en fallback de predicción: {fallback_error}")
+                    # Usar valores por defecto
+                    classifier_prediction = {
+                        "classes": ["densidad-media", "fuente-sans", "modo-claro"],
+                        "confidence": 50.0
+                    }
+                    regressor_prediction = {
+                        "variables": {
+                            "--font-size-base": "1.000rem",
+                            "--spacing-factor": "1.000",
+                            "--color-primary-hue": "180",
+                            "--border-radius": "0.250rem",
+                            "--line-height": "1.400"
+                        },
+                        "confidence": 50.0
+                    }
             
             # 5. Construir tokens de diseño
             design_tokens = DesignTokens(
@@ -73,7 +126,8 @@ class AdaptiveUIService:
             # 6. Calcular confianza de predicción
             confidence = {
                 "classification": classifier_prediction["confidence"],
-                "regression": regressor_prediction["confidence"]
+                "regression": regressor_prediction["confidence"],
+                "overall": (classifier_prediction["confidence"] + regressor_prediction["confidence"]) / 2
             }
             
             processing_time = (time.time() - start_time) * 1000  # ms
@@ -108,3 +162,43 @@ class AdaptiveUIService:
         except Exception as e:
             logger.error(f"❌ Error almacenando log: {e}")
             raise
+    
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """
+        Retorna el estado actual del sistema de IA.
+        Útil para health checks y monitoreo.
+        """
+        try:
+            model_info = self.model_manager.get_model_info()
+            feature_processor_status = self.feature_processor.validate_processor()
+            
+            return {
+                "status": "healthy",
+                "models": {
+                    "state": model_info.get("state", "unknown"),
+                    "classifier_loaded": model_info.get("classifier_loaded", False),
+                    "regressor_loaded": model_info.get("regressor_loaded", False),
+                    "feature_processor_loaded": model_info.get("feature_processor_loaded", False),
+                    "version": model_info.get("version", "unknown"),
+                    "f1_score": model_info.get("f1_score", 0.0),
+                    "r2_score": model_info.get("r2_score", 0.0)
+                },
+                "feature_processor": {
+                    "status": "ready" if feature_processor_status else "error",
+                    "features_count": len(self.feature_processor.get_feature_names())
+                },
+                "services": {
+                    "firebase": "ready",
+                    "adaptive_ui": "ready"
+                }
+            }
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo estado del sistema: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "models": {"state": "error"},
+                "feature_processor": {"status": "error"},
+                "services": {"adaptive_ui": "error"}
+            }

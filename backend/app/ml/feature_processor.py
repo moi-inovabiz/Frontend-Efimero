@@ -406,3 +406,86 @@ class FeatureProcessor:
         total = sum([log.get("interaction_count", 1) for log in mouse_interactions])
         
         return errors / max(total, 1)
+    
+    
+    def validate_processor(self) -> bool:
+        """
+        Valida que el Feature Processor esté funcionando correctamente.
+        Usado para health checks del sistema.
+        """
+        try:
+            # Crear contexto de prueba
+            test_context = UserContext(
+                hora_local=datetime.now(),
+                prefers_color_scheme="dark",
+                viewport_width=1920,
+                viewport_height=1080,
+                touch_enabled=False,
+                device_pixel_ratio=1.0,
+                user_agent="test-agent",
+                session_id="test-session",
+                page_path="/test"
+            )
+            
+            # Intentar procesar features
+            test_features = self.prepare_features(
+                user_context=test_context,
+                historical_data=[],
+                social_context={},
+                is_authenticated=True
+            )
+            
+            # Verificar que retorna el número correcto de features
+            if test_features is None or len(test_features) != self.EXPECTED_FEATURE_COUNT:
+                logger.error(f"❌ Validation failed: Expected {self.EXPECTED_FEATURE_COUNT} features, got {len(test_features) if test_features is not None else 'None'}")
+                return False
+            
+            # Verificar que no hay valores NaN o infinitos
+            if np.any(np.isnan(test_features)) or np.any(np.isinf(test_features)):
+                logger.error("❌ Validation failed: Found NaN or infinite values in features")
+                return False
+                
+            logger.info("✅ Feature Processor validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Feature Processor validation error: {e}")
+            return False
+    
+    
+    def get_feature_names(self) -> List[str]:
+        """
+        Retorna los nombres de todas las features procesadas.
+        Útil para debugging y logging.
+        """
+        return [
+            # Device features (4)
+            "viewport_width_norm", "viewport_height_norm", "device_pixel_ratio_norm", "touch_enabled",
+            # Time features (3) 
+            "hour_sin", "hour_cos", "is_night_time",
+            # Preference features (2)
+            "prefers_dark_mode", "is_mobile_viewport",
+            # Historical features (8)
+            "avg_session_duration_norm", "avg_interaction_count_norm", "total_sessions_norm", 
+            "avg_error_rate_norm", "last_session_days_norm", "session_consistency_norm",
+            "interaction_intensity_norm", "error_trend_norm",
+            # Composite features (3)
+            "touch_vs_mouse_error_ratio", "auth_behavior_modifier", "mobile_time_touch_correlation"
+        ]
+    
+    
+    def get_default_features(self) -> np.ndarray:
+        """
+        Retorna features por defecto cuando hay errores en el procesamiento.
+        """
+        # Features neutros/promedio
+        default_features = np.array([
+            0.5, 0.5, 0.5, 0.0,  # Device features
+            0.0, 1.0, 0.0,       # Time features (noon)
+            0.0, 0.0,            # Preference features  
+            0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,  # Historical (neutral)
+            0.5, 0.1, 0.0        # Composite features
+        ])
+        
+        logger.info("🔄 Using default features due to processing error")
+        return default_features

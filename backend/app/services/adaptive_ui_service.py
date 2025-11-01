@@ -29,10 +29,27 @@ class AdaptiveUIService:
     def __init__(self):
         self.firebase_service = FirebaseService()
         self.feature_processor = FeatureProcessor()
-        self.model_manager = ModelManager()
+        self._models_loaded = False
         
-        # Los modelos se cargarán de forma lazy durante la primera predicción
-        logger.info("✅ AdaptiveUIService: Servicio inicializado - Modelos se cargarán automáticamente")
+        # Los modelos se cargarán automáticamente en la primera predicción
+        logger.info("✅ AdaptiveUIService: Servicio inicializado - Carga lazy de modelos habilitada")
+    
+    
+    async def _ensure_models_loaded(self) -> None:
+        """
+        Asegura que los modelos estén cargados antes de hacer predicciones.
+        Implementa lazy loading automático.
+        """
+        if not self._models_loaded:
+            try:
+                logger.info("🔄 Cargando modelos ML por primera vez...")
+                await ModelManager.load_models()
+                self._models_loaded = True
+                logger.info("✅ Modelos cargados exitosamente")
+            except Exception as e:
+                logger.error(f"❌ Error cargando modelos: {e}")
+                # Continuar con fallbacks - no fallar el servicio
+                pass
     
     
     async def generate_adaptive_design(
@@ -58,7 +75,8 @@ class AdaptiveUIService:
             
             # 3. Preparar features para la IA
             try:
-                features = self.feature_processor.prepare_features(
+                # Usar la nueva versión que genera exactamente 21 features
+                features = self.feature_processor.prepare_features_v2(
                     user_context=user_context,
                     historical_data=historical_data,
                     social_context=social_context,
@@ -68,12 +86,15 @@ class AdaptiveUIService:
             except Exception as e:
                 logger.error(f"❌ Error preparando features: {e}")
                 # Usar features mínimas como fallback
-                features = self.feature_processor.get_default_features()
+                features = self.feature_processor.get_default_features_v2()
             
             # 4. DOBLE PREDICCIÓN OBLIGATORIA (XGBoost)
+            # Asegurar que los modelos estén cargados
+            await self._ensure_models_loaded()
+            
             try:
-                # Usar predicción dual integrada del ModelManager
-                prediction_result = self.model_manager.predict_dual(
+                # Usar predicción dual integrada del ModelManager (métodos de clase)
+                prediction_result = ModelManager.predict_dual(
                     user_context=user_context,
                     historical_data=historical_data,
                     social_context=social_context,
@@ -94,10 +115,10 @@ class AdaptiveUIService:
                 
             except Exception as e:
                 logger.error(f"❌ Error en predicción ML: {e}")
-                # Fallback a predicciones por separado
+                # Fallback a predicciones por separado usando features procesadas
                 try:
-                    classifier_prediction = self.model_manager.predict_classes(features)
-                    regressor_prediction = self.model_manager.predict_values(features)
+                    classifier_prediction = ModelManager.predict_classes(features)
+                    regressor_prediction = ModelManager.predict_values(features)
                     logger.info("✅ Predicciones separadas completadas como fallback")
                 except Exception as fallback_error:
                     logger.error(f"❌ Error en fallback de predicción: {fallback_error}")
@@ -170,7 +191,7 @@ class AdaptiveUIService:
         Útil para health checks y monitoreo.
         """
         try:
-            model_info = self.model_manager.get_model_info()
+            model_info = ModelManager.get_model_info()
             feature_processor_status = self.feature_processor.validate_processor()
             
             return {
@@ -182,7 +203,8 @@ class AdaptiveUIService:
                     "feature_processor_loaded": model_info.get("feature_processor_loaded", False),
                     "version": model_info.get("version", "unknown"),
                     "f1_score": model_info.get("f1_score", 0.0),
-                    "r2_score": model_info.get("r2_score", 0.0)
+                    "r2_score": model_info.get("r2_score", 0.0),
+                    "models_loaded": self._models_loaded
                 },
                 "feature_processor": {
                     "status": "ready" if feature_processor_status else "error",
@@ -198,7 +220,7 @@ class AdaptiveUIService:
             return {
                 "status": "error",
                 "error": str(e),
-                "models": {"state": "error"},
+                "models": {"state": "error", "models_loaded": self._models_loaded},
                 "feature_processor": {"status": "error"},
                 "services": {"adaptive_ui": "error"}
             }

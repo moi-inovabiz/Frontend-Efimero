@@ -29,7 +29,7 @@ class FeatureProcessor:
     """
     
     # Constantes para validación
-    EXPECTED_FEATURE_COUNT = 20
+    EXPECTED_FEATURE_COUNT = 21  # Actualizado para coincidir con modelos entrenados
     VIEWPORT_MIN = 100
     VIEWPORT_MAX = 8000
     PIXEL_RATIO_MIN = 0.5
@@ -427,8 +427,8 @@ class FeatureProcessor:
                 page_path="/test"
             )
             
-            # Intentar procesar features
-            test_features = self.prepare_features(
+            # Intentar procesar features usando la versión actualizada
+            test_features = self.prepare_features_v2(
                 user_context=test_context,
                 historical_data=[],
                 social_context={},
@@ -455,22 +455,16 @@ class FeatureProcessor:
     
     def get_feature_names(self) -> List[str]:
         """
-        Retorna los nombres de todas las features procesadas.
-        Útil para debugging y logging.
+        Retorna los nombres de todas las features procesadas (21 features).
+        Basado en feature_columns de dual_models_metadata.json
         """
         return [
-            # Device features (4)
-            "viewport_width_norm", "viewport_height_norm", "device_pixel_ratio_norm", "touch_enabled",
-            # Time features (3) 
-            "hour_sin", "hour_cos", "is_night_time",
-            # Preference features (2)
-            "prefers_dark_mode", "is_mobile_viewport",
-            # Historical features (8)
-            "avg_session_duration_norm", "avg_interaction_count_norm", "total_sessions_norm", 
-            "avg_error_rate_norm", "last_session_days_norm", "session_consistency_norm",
-            "interaction_intensity_norm", "error_trend_norm",
-            # Composite features (3)
-            "touch_vs_mouse_error_ratio", "auth_behavior_modifier", "mobile_time_touch_correlation"
+            "hour_sin", "hour_cos", "day_sin", "day_cos", 
+            "viewport_width", "viewport_height", "viewport_aspect_ratio", "viewport_area_normalized", 
+            "touch_enabled", "device_pixel_ratio", "prefers_dark_mode", 
+            "avg_session_duration", "total_clicks_last_week", "scroll_depth_avg", 
+            "error_rate_last_week", "preferred_text_size", "interaction_speed", 
+            "user_group_density", "locale_preference", "accessibility_needs", "network_speed"
         ]
     
     
@@ -488,4 +482,210 @@ class FeatureProcessor:
         ])
         
         logger.info("🔄 Using default features due to processing error")
+        return default_features
+    
+    
+    def prepare_features_v2(
+        self,
+        user_context: UserContext,
+        historical_data: List[Dict[str, Any]] = None,
+        social_context: Dict[str, Any] = None,
+        is_authenticated: bool = False
+    ) -> np.ndarray:
+        """
+        Genera exactamente las 21 features que los modelos entrenados esperan.
+        
+        Basado en feature_columns de dual_models_metadata.json:
+        [hour_sin, hour_cos, day_sin, day_cos, viewport_width, viewport_height, 
+         viewport_aspect_ratio, viewport_area_normalized, touch_enabled, device_pixel_ratio, 
+         prefers_dark_mode, avg_session_duration, total_clicks_last_week, scroll_depth_avg, 
+         error_rate_last_week, preferred_text_size, interaction_speed, user_group_density, 
+         locale_preference, accessibility_needs, network_speed]
+        """
+        try:
+            # Validar entrada
+            if not isinstance(user_context, UserContext):
+                raise FeatureValidationError("user_context must be UserContext instance")
+            
+            features = []
+            
+            # 1-2. hour_sin, hour_cos - Features temporales circulares
+            hour = user_context.hora_local.hour
+            hour_norm = 2 * np.pi * hour / 24
+            features.extend([
+                np.sin(hour_norm),  # hour_sin
+                np.cos(hour_norm)   # hour_cos
+            ])
+            
+            # 3-4. day_sin, day_cos - Features de día del año circulares
+            day_of_year = user_context.hora_local.timetuple().tm_yday
+            day_norm = 2 * np.pi * day_of_year / 365
+            features.extend([
+                np.sin(day_norm),   # day_sin
+                np.cos(day_norm)    # day_cos
+            ])
+            
+            # 5-6. viewport_width, viewport_height - Dimensiones normalizadas
+            viewport_width_norm = user_context.viewport_width / 3840  # Normalizar a 4K
+            viewport_height_norm = user_context.viewport_height / 2160
+            features.extend([
+                viewport_width_norm,   # viewport_width
+                viewport_height_norm   # viewport_height
+            ])
+            
+            # 7. viewport_aspect_ratio - Relación de aspecto
+            aspect_ratio = user_context.viewport_width / max(user_context.viewport_height, 1)
+            aspect_ratio_norm = np.clip(aspect_ratio / 3.0, 0, 1)  # Normalizar ratios típicos
+            features.append(aspect_ratio_norm)  # viewport_aspect_ratio
+            
+            # 8. viewport_area_normalized - Área normalizada logarítmica
+            viewport_area = user_context.viewport_width * user_context.viewport_height
+            max_area = 3840 * 2160  # 4K
+            area_normalized = np.log(viewport_area + 1) / np.log(max_area)
+            features.append(area_normalized)  # viewport_area_normalized
+            
+            # 9. touch_enabled - Capacidad táctil
+            features.append(float(user_context.touch_enabled))  # touch_enabled
+            
+            # 10. device_pixel_ratio - Ratio de píxeles normalizado
+            pixel_ratio_norm = np.clip(user_context.device_pixel_ratio / 4.0, 0, 1)
+            features.append(pixel_ratio_norm)  # device_pixel_ratio
+            
+            # 11. prefers_dark_mode - Preferencia de modo oscuro
+            prefers_dark = 1.0 if user_context.prefers_color_scheme == "dark" else 0.0
+            features.append(prefers_dark)  # prefers_dark_mode
+            
+            # 12-16. Features históricas basadas en historical_data
+            if historical_data:
+                # avg_session_duration
+                session_durations = [log.get("session_duration", 180000) for log in historical_data]
+                avg_duration = np.mean(session_durations) / 600000  # Normalizar a 10 min
+                features.append(np.clip(avg_duration, 0, 1))
+                
+                # total_clicks_last_week
+                total_clicks = sum([log.get("interaction_count", 10) for log in historical_data])
+                clicks_norm = total_clicks / 1000  # Normalizar a 1000 clicks
+                features.append(np.clip(clicks_norm, 0, 1))
+                
+                # scroll_depth_avg
+                scroll_depths = [0.75]  # Default si no hay datos específicos
+                avg_scroll = np.mean(scroll_depths)
+                features.append(avg_scroll)
+                
+                # error_rate_last_week
+                total_errors = sum([log.get("error_count", 0) for log in historical_data])
+                total_interactions = max(sum([log.get("interaction_count", 1) for log in historical_data]), 1)
+                error_rate = total_errors / total_interactions
+                features.append(error_rate)
+                
+                # preferred_text_size
+                text_size_pref = 0.5  # Neutral por defecto
+                features.append(text_size_pref)
+            else:
+                # Valores por defecto para features históricas
+                features.extend([0.3, 0.1, 0.75, 0.05, 0.5])
+            
+            # 17. interaction_speed - Velocidad de interacción
+            interaction_speed = 0.5  # Velocidad neutral por defecto
+            if historical_data:
+                speeds = []
+                for log in historical_data:
+                    duration = log.get("session_duration", 180000) / 1000  # en segundos
+                    interactions = log.get("interaction_count", 10)
+                    speed = interactions / max(duration, 1)  # interacciones por segundo
+                    speeds.append(speed)
+                
+                if speeds:
+                    avg_speed = np.mean(speeds)
+                    interaction_speed = np.clip(avg_speed / 0.1, 0, 1)  # Normalizar a 0.1 int/sec
+            
+            features.append(interaction_speed)  # interaction_speed
+            
+            # 18. user_group_density - Grupo de densidad del usuario
+            if user_context.viewport_width >= 1920:
+                density_group = 2  # alta densidad
+            elif user_context.viewport_width >= 1024:
+                density_group = 1  # densidad media
+            else:
+                density_group = 0  # baja densidad
+            
+            density_norm = density_group / 2.0  # Normalizar 0-1
+            features.append(density_norm)  # user_group_density
+            
+            # 19. locale_preference - Preferencia de idioma
+            user_agent = getattr(user_context, 'user_agent', '')
+            if 'es' in user_agent.lower():
+                locale = 1  # español
+            elif 'de' in user_agent.lower():
+                locale = 2  # alemán  
+            elif 'fr' in user_agent.lower():
+                locale = 3  # francés
+            else:
+                locale = 0  # inglés (default)
+            
+            locale_norm = locale / 3.0  # Normalizar 0-1
+            features.append(locale_norm)  # locale_preference
+            
+            # 20. accessibility_needs - Necesidades de accesibilidad
+            accessibility = 0.0
+            if user_context.device_pixel_ratio >= 2.0:  # Alta DPI
+                accessibility = 0.3
+            if user_context.touch_enabled:  # Touch
+                accessibility += 0.2
+            
+            features.append(np.clip(accessibility, 0, 1))  # accessibility_needs
+            
+            # 21. network_speed - Velocidad de red inferida
+            if user_context.touch_enabled and user_context.viewport_width < 768:  # Móvil
+                network_speed = 0  # slow
+            elif user_context.viewport_width >= 1920:  # Desktop grande
+                network_speed = 2  # fast
+            else:
+                network_speed = 1  # medium
+            
+            network_norm = network_speed / 2.0  # Normalizar 0-1
+            features.append(network_norm)  # network_speed
+            
+            # Convertir a numpy array y validar
+            features_array = np.array(features, dtype=np.float32)
+            
+            # Validaciones finales
+            if len(features_array) != self.EXPECTED_FEATURE_COUNT:
+                raise FeatureValidationError(f"Expected {self.EXPECTED_FEATURE_COUNT} features, got {len(features_array)}")
+            
+            if np.any(np.isnan(features_array)) or np.any(np.isinf(features_array)):
+                raise FeatureValidationError("Features contain NaN or infinite values")
+            
+            # Clipping final para evitar valores extremos
+            features_array = np.clip(features_array, self.FEATURE_VALUE_MIN, self.FEATURE_VALUE_MAX)
+            
+            logger.info(f"✅ Features v2 preparadas: {len(features_array)} características")
+            return features_array
+            
+        except Exception as e:
+            logger.error(f"❌ Error preparando features v2: {e}")
+            return self.get_default_features_v2()
+    
+    
+    def get_default_features_v2(self) -> np.ndarray:
+        """
+        Retorna features por defecto de 21 elementos cuando hay errores.
+        """
+        # Features neutros/promedio para las 21 características
+        default_features = np.array([
+            0.0, 1.0,       # hour_sin, hour_cos (noon)
+            0.0, 1.0,       # day_sin, day_cos (start of year)
+            0.5, 0.5,       # viewport_width, viewport_height (medium)
+            0.6, 0.9,       # viewport_aspect_ratio, viewport_area_normalized
+            0.0, 0.25,      # touch_enabled, device_pixel_ratio
+            0.0,            # prefers_dark_mode (light mode default)
+            0.3, 0.1, 0.75, 0.05, 0.5,  # historical features
+            0.5,            # interaction_speed
+            0.5,            # user_group_density (medium)
+            0.0,            # locale_preference (english)
+            0.0,            # accessibility_needs
+            1.0             # network_speed (fast default)
+        ])
+        
+        logger.info("🔄 Using default features v2 due to processing error")
         return default_features

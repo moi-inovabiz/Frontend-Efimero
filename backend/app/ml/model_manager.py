@@ -6,6 +6,9 @@ Maneja la carga y predicción de los modelos duales obligatorios
 import joblib
 import numpy as np
 import json
+import asyncio
+import time
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
 from pathlib import Path
@@ -51,35 +54,100 @@ class ModelManager:
     
     
     @classmethod
-    async def load_models(cls) -> None:
+    async def load_models(cls, max_retries: int = 3, retry_delay: float = 1.0) -> None:
         """
         Carga los modelos XGBoost duales en memoria RAM.
         Ejecutado en el startup hook de FastAPI.
         
         Prioriza modelos duales entrenados, con fallback a modelos individuales.
+        Implementa reintentos automáticos y recuperación graceful.
+        
+        Args:
+            max_retries: Número máximo de reintentos
+            retry_delay: Segundos a esperar entre reintentos
         """
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Reintento {attempt}/{max_retries} de carga de modelos...")
+                    await asyncio.sleep(retry_delay * attempt)  # Backoff exponencial
+                
+                models_path = Path(settings.MODELS_PATH)
+                logger.info(f"🔄 Cargando modelos desde: {models_path}")
+                
+                # Verificar que el directorio existe
+                if not models_path.exists():
+                    raise FileNotFoundError(f"Directorio de modelos no encontrado: {models_path}")
+                
+                # Intentar cargar modelos duales primero (preferido)
+                dual_success = await cls._load_dual_models(models_path)
+                
+                if not dual_success:
+                    # Fallback a modelos individuales
+                    logger.info("⚠️  Modelos duales no encontrados, intentando modelos individuales")
+                    individual_success = await cls._load_individual_models(models_path)
+                    
+                    if not individual_success:
+                        # Último fallback: modelos por defecto
+                        logger.warning("⚠️  Modelos individuales tampoco disponibles, usando configuración por defecto")
+                        await cls._load_default_models()
+                
+                # Cargar Feature Processor
+                cls._feature_processor = FeatureProcessor()
+                
+                # Validar que todo está funcionando
+                await cls._validate_loaded_models()
+                
+                cls._is_loaded = True
+                logger.info("🎯 Sistema de modelos ML inicializado exitosamente")
+                return  # Éxito, salir del loop de reintentos
+                
+            except FileNotFoundError as e:
+                last_error = e
+                logger.error(f"❌ Archivos de modelos no encontrados (intento {attempt + 1}): {e}")
+                if attempt == max_retries:
+                    logger.error("❌ Todos los archivos de modelos están ausentes")
+                    break
+                    
+            except ImportError as e:
+                last_error = e
+                logger.error(f"❌ Error de dependencias ML (intento {attempt + 1}): {e}")
+                logger.error("💡 Verificar instalación de XGBoost, scikit-learn y joblib")
+                if attempt == max_retries:
+                    break
+                    
+            except MemoryError as e:
+                last_error = e
+                logger.error(f"❌ Error de memoria (intento {attempt + 1}): {e}")
+                logger.error("💡 Modelos demasiado grandes para la memoria disponible")
+                if attempt == max_retries:
+                    break
+                    
+            except Exception as e:
+                last_error = e
+                logger.error(f"❌ Error cargando modelos (intento {attempt + 1}): {e}")
+                if attempt == max_retries:
+                    logger.error("❌ Agotados todos los reintentos")
+        
+        # Si llegamos aquí, todos los reintentos fallaron
+        logger.error("❌ Error crítico: No se pudieron cargar modelos ML")
+        logger.info("🔄 Iniciando en modo degradado con fallbacks...")
+        
         try:
-            models_path = Path(settings.MODELS_PATH)
-            logger.info(f"🔄 Cargando modelos desde: {models_path}")
-            
-            # Intentar cargar modelos duales primero (preferido)
-            dual_success = await cls._load_dual_models(models_path)
-            
-            if not dual_success:
-                # Fallback a modelos individuales
-                logger.info("⚠️  Modelos duales no encontrados, intentando modelos individuales")
-                await cls._load_individual_models(models_path)
-            
-            # Cargar Feature Processor
-            cls._feature_processor = FeatureProcessor()
-            
+            # Modo de emergencia: solo Feature Processor y valores por defecto
+            await cls._initialize_emergency_mode()
             cls._is_loaded = True
-            logger.info("🎯 Sistema de modelos ML inicializado exitosamente")
+            logger.warning("⚠️  Sistema iniciado en MODO DEGRADADO - usando solo fallbacks")
             
-        except Exception as e:
-            logger.error(f"❌ Error crítico cargando modelos: {e}")
-            # En producción, podríamos usar modelos por defecto aquí
-            raise
+        except Exception as emergency_error:
+            logger.error(f"❌ Error crítico en modo de emergencia: {emergency_error}")
+            cls._is_loaded = False
+            raise RuntimeError(
+                f"Sistema ML completamente inoperativo. Error original: {last_error}. "
+                f"Error de emergencia: {emergency_error}"
+            )
     
     @classmethod
     async def _load_dual_models(cls, models_path: Path) -> bool:
@@ -152,20 +220,66 @@ class ModelManager:
             return False
     
     @classmethod
-    async def _load_individual_models(cls, models_path: Path) -> None:
+    async def _load_individual_models(cls, models_path: Path) -> bool:
         """
         Carga modelos individuales como fallback.
-        """
-        # Cargar XGBoost Classifier individual
-        classifier_path = models_path / settings.CLASSIFIER_MODEL_NAME
-        if classifier_path.exists():
-            cls._classifier_model = joblib.load(classifier_path)
-            logger.info("✅ XGBoost Classifier individual cargado")
-        else:
-            logger.error(f"❌ Modelo clasificador no encontrado: {classifier_path}")
-            raise FileNotFoundError(f"Classifier model not found: {classifier_path}")
         
-        # Cargar XGBoost Regressor individual
+        Returns:
+            bool: True si la carga fue exitosa
+        """
+        try:
+            logger.info("🔄 Cargando modelos individuales...")
+            
+            # Cargar XGBoost Classifier individual
+            classifier_path = models_path / settings.CLASSIFIER_INDIVIDUAL_NAME
+            if classifier_path.exists():
+                cls._classifier_model = joblib.load(classifier_path)
+                logger.info("✅ XGBoost Classifier individual cargado")
+            else:
+                logger.warning(f"⚠️  Modelo clasificador individual no encontrado: {classifier_path}")
+                return False
+            
+            # Cargar XGBoost Regressor individual
+            regressor_path = models_path / settings.REGRESSOR_INDIVIDUAL_NAME
+            if regressor_path.exists():
+                cls._regressor_model = joblib.load(regressor_path)
+                logger.info("✅ XGBoost Regressor individual cargado")
+            else:
+                logger.warning(f"⚠️  Modelo regresor individual no encontrado: {regressor_path}")
+                return False
+            
+            # Cargar escaladores individuales
+            scaler_path = models_path / settings.SCALER_INDIVIDUAL_NAME
+            if scaler_path.exists():
+                cls._feature_scaler = joblib.load(scaler_path)
+                logger.info("✅ Feature Scaler individual cargado")
+            
+            # Cargar metadata si existe
+            try:
+                metadata_files = [
+                    models_path / "classifier_metadata.json",
+                    models_path / "regressor_metadata.json"
+                ]
+                
+                for metadata_file in metadata_files:
+                    if metadata_file.exists():
+                        with open(metadata_file, 'r') as f:
+                            metadata = json.load(f)
+                            if cls._model_metadata is None:
+                                cls._model_metadata = {"training_results": {}}
+                            cls._model_metadata["training_results"].update(metadata)
+                        
+                logger.info("✅ Metadata de modelos individuales cargada")
+                
+            except Exception as e:
+                logger.warning(f"⚠️  No se pudo cargar metadata individual: {e}")
+            
+            logger.info("🎯 Modelos individuales cargados exitosamente")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error cargando modelos individuales: {e}")
+            return False
         regressor_path = models_path / settings.REGRESSOR_MODEL_NAME
         if regressor_path.exists():
             cls._regressor_model = joblib.load(regressor_path)
@@ -296,8 +410,8 @@ class ModelManager:
             raise RuntimeError("Sistema de modelos no inicializado")
         
         try:
-            # Procesar features usando FeatureProcessor
-            features = cls._feature_processor.prepare_features(
+            # Procesar features usando FeatureProcessor v2 (21 features)
+            features = cls._feature_processor.prepare_features_v2(
                 user_context, historical_data, social_context, is_authenticated
             )
             
@@ -500,6 +614,483 @@ class ModelManager:
         return info
     
     
+    @classmethod
+    async def _validate_loaded_models(cls) -> None:
+        """
+        Valida que los modelos cargados estén funcionando correctamente.
+        Ejecuta predicciones de prueba para verificar integridad.
+        """
+        logger.info("🔍 Validando modelos cargados...")
+        
+        try:
+            # Crear features de prueba
+            test_features = np.array([0.5] * 21, dtype=np.float32)
+            
+            # Probar predicción de clasificación
+            if cls._classifier_model is not None:
+                try:
+                    test_prediction = cls._classifier_model.predict_proba([test_features])
+                    if test_prediction is None or len(test_prediction) == 0:
+                        raise ValueError("Classifier no retorna predicciones válidas")
+                    logger.info("✅ Classifier validado exitosamente")
+                except Exception as e:
+                    logger.error(f"❌ Classifier falló validación: {e}")
+                    cls._classifier_model = None
+            
+            # Probar predicción de regresión
+            if cls._regressor_model is not None:
+                try:
+                    test_prediction = cls._regressor_model.predict([test_features])
+                    if test_prediction is None or len(test_prediction) == 0:
+                        raise ValueError("Regressor no retorna predicciones válidas")
+                    logger.info("✅ Regressor validado exitosamente")
+                except Exception as e:
+                    logger.error(f"❌ Regressor falló validación: {e}")
+                    cls._regressor_model = None
+            
+            # Validar escaladores
+            if cls._feature_scaler is not None:
+                try:
+                    scaled_features = cls._feature_scaler.transform([test_features])
+                    if scaled_features is None:
+                        raise ValueError("Feature scaler no funciona correctamente")
+                    logger.info("✅ Feature scaler validado")
+                except Exception as e:
+                    logger.error(f"❌ Feature scaler falló: {e}")
+                    cls._feature_scaler = None
+            
+            logger.info("🎯 Validación de modelos completada")
+            
+        except Exception as e:
+            logger.error(f"❌ Error en validación de modelos: {e}")
+            raise
+    
+    
+    @classmethod
+    async def _load_default_models(cls) -> None:
+        """
+        Carga configuración por defecto cuando no hay modelos disponibles.
+        Establece mapeos básicos y configuración mínima.
+        """
+        logger.info("🔄 Cargando configuración por defecto...")
+        
+        # Mapeos básicos de clases CSS
+        cls._class_mappings = {
+            0: ["densidad-alta", "fuente-sans", "modo-claro"],
+            1: ["densidad-alta", "fuente-sans", "modo-nocturno"],
+            2: ["densidad-media", "fuente-sans", "modo-claro"],
+            3: ["densidad-media", "fuente-sans", "modo-nocturno"],
+            4: ["densidad-baja", "fuente-sans", "modo-claro"],
+            5: ["densidad-baja", "fuente-sans", "modo-nocturno"]
+        }
+        
+        # Variables CSS por defecto
+        cls._target_columns = [
+            "--font-size-base", "--spacing-factor", "--color-primary-hue",
+            "--border-radius", "--line-height"
+        ]
+        
+        # Metadata mínima
+        cls._model_metadata = {
+            "version": "fallback-1.0",
+            "model_type": "default",
+            "training_results": {
+                "classifier": {"test_f1_score": 0.0},
+                "regressor": {"test_r2_score": 0.0},
+                "combined": {
+                    "n_features": 21,
+                    "classifier_f1_score": 0.0,
+                    "regressor_r2_score": 0.0
+                }
+            }
+        }
+        
+        logger.info("✅ Configuración por defecto cargada")
+    
+    
+    @classmethod
+    async def _initialize_emergency_mode(cls) -> None:
+        """
+        Inicializa el sistema en modo de emergencia.
+        Solo Feature Processor básico y valores hardcodeados.
+        """
+        logger.warning("🚨 Iniciando modo de emergencia...")
+        
+        try:
+            # Inicializar Feature Processor básico
+            cls._feature_processor = FeatureProcessor()
+            
+            # Cargar configuración mínima
+            await cls._load_default_models()
+            
+            # Limpiar referencias a modelos ML
+            cls._classifier_model = None
+            cls._regressor_model = None
+            cls._feature_scaler = None
+            cls._regressor_scaler = None
+            cls._target_scaler = None
+            cls._label_encoder = None
+            
+            logger.warning("⚠️  Modo de emergencia activo - solo fallbacks disponibles")
+            
+        except Exception as e:
+            logger.error(f"❌ Error inicializando modo de emergencia: {e}")
+            raise
+    
+    
+    @classmethod
+    def is_in_emergency_mode(cls) -> bool:
+        """
+        Verifica si el sistema está operando en modo de emergencia.
+        
+        Returns:
+            bool: True si está en modo emergencia
+        """
+        return (cls._is_loaded and 
+                cls._classifier_model is None and 
+                cls._regressor_model is None and
+                cls._feature_processor is not None)
+    
+    
+    @classmethod
+    async def attempt_model_recovery(cls) -> Dict[str, Any]:
+        """
+        Intenta recuperar modelos después de un fallo.
+        Útil para recuperación automática.
+        
+        Returns:
+            Dict con resultados detallados de la recuperación
+        """
+        logger.info("🔄 Intentando recuperación de modelos...")
+        
+        recovery_result = {
+            "success": False,
+            "timestamp": datetime.now().isoformat(),
+            "message": "",
+            "loaded_components": [],
+            "errors": [],
+            "previous_state": cls.get_system_health()
+        }
+        
+        try:
+            # Limpiar estado actual
+            cls.cleanup()
+            
+            # Intentar recargar
+            await cls.load_models(max_retries=2, retry_delay=0.5)
+            
+            # Verificar qué componentes se cargaron
+            if cls._classifier_model:
+                recovery_result["loaded_components"].append("classifier")
+            if cls._regressor_model:
+                recovery_result["loaded_components"].append("regressor")
+            if cls._feature_processor:
+                recovery_result["loaded_components"].append("feature_processor")
+            if cls._feature_scaler:
+                recovery_result["loaded_components"].append("feature_scaler")
+            
+            if cls._is_loaded and not cls.is_in_emergency_mode():
+                recovery_result["success"] = True
+                recovery_result["message"] = "Recuperación completa exitosa"
+                logger.info("✅ Recuperación de modelos exitosa")
+            elif cls._is_loaded:
+                recovery_result["success"] = True
+                recovery_result["message"] = "Recuperación parcial - sistema en modo degradado"
+                logger.warning("⚠️  Recuperación parcial - sistema en modo degradado")
+            else:
+                recovery_result["success"] = False
+                recovery_result["message"] = "Recuperación fallida - sistema offline"
+                recovery_result["errors"].append("No se pudieron cargar componentes críticos")
+                
+        except Exception as e:
+            recovery_result["success"] = False
+            recovery_result["message"] = f"Fallo en recuperación: {str(e)}"
+            recovery_result["errors"].append(str(e))
+            logger.error(f"❌ Fallo en recuperación de modelos: {e}")
+        
+        recovery_result["final_state"] = cls.get_system_health()
+        return recovery_result
+    
+    
+    @classmethod
+    def get_system_health(cls) -> Dict[str, Any]:
+        """
+        Obtiene un reporte detallado de salud del sistema ML.
+        
+        Returns:
+            Dict con métricas de salud
+        """
+        health = {
+            "overall_status": "unknown",
+            "is_loaded": cls._is_loaded,
+            "emergency_mode": cls.is_in_emergency_mode(),
+            "components": {
+                "classifier": "offline",
+                "regressor": "offline", 
+                "feature_processor": "offline",
+                "scalers": "offline"
+            },
+            "performance": {
+                "can_predict": False,
+                "fallback_only": True
+            },
+            "validation": {
+                "last_check": None,
+                "model_integrity": "unknown",
+                "prediction_quality": "unknown",
+                "errors": []
+            }
+        }
+        
+        if cls._is_loaded:
+            # Estado de componentes
+            health["components"]["classifier"] = "online" if cls._classifier_model else "offline"
+            health["components"]["regressor"] = "online" if cls._regressor_model else "offline"
+            health["components"]["feature_processor"] = "online" if cls._feature_processor else "offline"
+            health["components"]["scalers"] = "online" if cls._feature_scaler else "offline"
+            
+            # Estado general
+            if cls.is_in_emergency_mode():
+                health["overall_status"] = "degraded"
+                health["performance"]["can_predict"] = True
+                health["performance"]["fallback_only"] = True
+            elif cls._classifier_model and cls._regressor_model:
+                health["overall_status"] = "healthy"
+                health["performance"]["can_predict"] = True
+                health["performance"]["fallback_only"] = False
+            else:
+                health["overall_status"] = "partial"
+                health["performance"]["can_predict"] = True
+                health["performance"]["fallback_only"] = True
+        else:
+            health["overall_status"] = "offline"
+            
+        return health
+    
+    @classmethod
+    async def validate_model_integrity(cls) -> Dict[str, Any]:
+        """
+        Valida la integridad de los modelos ML realizando predicciones de prueba.
+        
+        Returns:
+            Dict con resultados de validación
+        """
+        validation_result = {
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "components": {
+                "classifier": {"status": "unknown", "error": None},
+                "regressor": {"status": "unknown", "error": None},
+                "feature_processor": {"status": "unknown", "error": None},
+                "scalers": {"status": "unknown", "error": None}
+            },
+            "predictions": {
+                "classifier_test": None,
+                "regressor_test": None,
+                "prediction_ranges": {"classifier": None, "regressor": None}
+            },
+            "performance_metrics": {
+                "inference_time_ms": None,
+                "memory_usage_mb": None
+            }
+        }
+        
+        try:
+            if not cls._is_loaded:
+                raise RuntimeError("Sistema ML no está cargado")
+            
+            # Crear datos de prueba realistas usando UserContext
+            from app.models.adaptive_ui import UserContext
+            test_context = UserContext(
+                # Campos requeridos por UserContext
+                hora_local=datetime.now(),
+                prefers_color_scheme="light",
+                viewport_width=1920,
+                viewport_height=1080,
+                touch_enabled=False,
+                device_pixel_ratio=1.0,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                session_id="test_session_123",
+                page_path="/test",
+                referer=None
+            )
+            
+            start_time = time.time()
+            
+            # Validar Feature Processor
+            try:
+                if cls._feature_processor:
+                    features = cls._feature_processor.prepare_features_v2(test_context)
+                    if len(features) != 21:
+                        raise ValueError(f"Feature processor devolvió {len(features)} features, esperadas 21")
+                    validation_result["components"]["feature_processor"]["status"] = "healthy"
+                else:
+                    raise RuntimeError("Feature processor no disponible")
+            except Exception as e:
+                validation_result["components"]["feature_processor"]["status"] = "error"
+                validation_result["components"]["feature_processor"]["error"] = str(e)
+            
+            # Validar Scalers
+            try:
+                if cls._feature_scaler:
+                    features_array = np.array(features).reshape(1, -1)
+                    scaled_features = cls._feature_scaler.transform(features_array)
+                    # Para modelos individuales, usamos el mismo scaler para ambos modelos
+                    regressor_scaled = scaled_features
+                    validation_result["components"]["scalers"]["status"] = "healthy"
+                else:
+                    raise RuntimeError("Feature scaler no disponible")
+            except Exception as e:
+                validation_result["components"]["scalers"]["status"] = "error"
+                validation_result["components"]["scalers"]["error"] = str(e)
+                # Asegurar que las variables existan para evitar errores downstream
+                features_array = np.array(features).reshape(1, -1)
+                scaled_features = features_array  # Fallback sin escalado
+                regressor_scaled = features_array
+            
+            # Validar Classifier
+            try:
+                if cls._classifier_model:
+                    # Hacer predicción
+                    class_probs = cls._classifier_model.predict_proba(scaled_features)[0]
+                    class_prediction = cls._classifier_model.predict(scaled_features)[0]
+                    
+                    # Validar rangos esperados
+                    if not (0 <= max(class_probs) <= 1):
+                        raise ValueError(f"Probabilidades fuera de rango: {class_probs}")
+                    
+                    # Decodificar clase
+                    if cls._label_encoder:
+                        decoded_class = cls._label_encoder.inverse_transform([class_prediction])[0]
+                        validation_result["predictions"]["classifier_test"] = {
+                            "class": decoded_class,
+                            "confidence": float(max(class_probs))
+                        }
+                    
+                    validation_result["components"]["classifier"]["status"] = "healthy"
+                    validation_result["predictions"]["prediction_ranges"]["classifier"] = {
+                        "min_confidence": float(min(class_probs)),
+                        "max_confidence": float(max(class_probs))
+                    }
+                else:
+                    raise RuntimeError("Classifier no disponible")
+            except Exception as e:
+                validation_result["components"]["classifier"]["status"] = "error"
+                validation_result["components"]["classifier"]["error"] = str(e)
+            
+            # Validar Regressor
+            try:
+                if cls._regressor_model:
+                    # Hacer predicción
+                    scaled_prediction = cls._regressor_model.predict(regressor_scaled)[0]
+                    
+                    # Desnormalizar si hay target scaler
+                    if cls._target_scaler:
+                        final_prediction = cls._target_scaler.inverse_transform([[scaled_prediction]])[0][0]
+                    else:
+                        final_prediction = scaled_prediction
+                    
+                    # Validar rangos razonables para variables CSS (0-100 o similar)
+                    if not (-100 <= final_prediction <= 200):  # Rango amplio pero razonable
+                        logger.warning(f"Predicción regressor fuera de rango esperado: {final_prediction}")
+                    
+                    validation_result["predictions"]["regressor_test"] = float(final_prediction)
+                    validation_result["components"]["regressor"]["status"] = "healthy"
+                    validation_result["predictions"]["prediction_ranges"]["regressor"] = {
+                        "value": float(final_prediction),
+                        "scaled_value": float(scaled_prediction)
+                    }
+                else:
+                    raise RuntimeError("Regressor no disponible")
+            except Exception as e:
+                validation_result["components"]["regressor"]["status"] = "error"
+                validation_result["components"]["regressor"]["error"] = str(e)
+            
+            # Calcular métricas de performance
+            end_time = time.time()
+            validation_result["performance_metrics"]["inference_time_ms"] = round((end_time - start_time) * 1000, 2)
+            
+            # Verificar memoria (simplificado)
+            try:
+                import psutil
+                process = psutil.Process()
+                validation_result["performance_metrics"]["memory_usage_mb"] = round(process.memory_info().rss / 1024 / 1024, 2)
+            except ImportError:
+                validation_result["performance_metrics"]["memory_usage_mb"] = "psutil_not_available"
+            
+            # Determinar éxito general
+            all_healthy = all(
+                comp["status"] == "healthy" 
+                for comp in validation_result["components"].values()
+            )
+            validation_result["success"] = all_healthy
+            
+            if all_healthy:
+                logger.info("✅ Validación de modelos ML completada exitosamente")
+            else:
+                failed_components = [
+                    name for name, comp in validation_result["components"].items() 
+                    if comp["status"] != "healthy"
+                ]
+                logger.warning(f"⚠️  Validación parcial - componentes con problemas: {failed_components}")
+                
+        except Exception as e:
+            logger.error(f"❌ Error durante validación de integridad: {e}")
+            validation_result["components"]["general"] = {"status": "error", "error": str(e)}
+        
+        return validation_result
+    
+    @classmethod
+    async def get_detailed_health_report(cls) -> Dict[str, Any]:
+        """
+        Genera un reporte de salud detallado combinando estado actual y validación.
+        
+        Returns:
+            Dict con reporte completo de salud
+        """
+        # Obtener estado básico
+        basic_health = cls.get_system_health()
+        
+        # Ejecutar validación de integridad
+        integrity_check = await cls.validate_model_integrity()
+        
+        # Combinar resultados
+        detailed_report = {
+            **basic_health,
+            "detailed_validation": integrity_check,
+            "recommendations": [],
+            "alerts": []
+        }
+        
+        # Generar recomendaciones basadas en los resultados
+        if not integrity_check["success"]:
+            detailed_report["recommendations"].append(
+                "Ejecutar attempt_model_recovery() para intentar recuperar modelos"
+            )
+            
+        failed_components = [
+            name for name, comp in integrity_check["components"].items()
+            if comp["status"] == "error"
+        ]
+        
+        if failed_components:
+            detailed_report["alerts"].append({
+                "level": "warning",
+                "message": f"Componentes con errores: {', '.join(failed_components)}"
+            })
+        
+        # Alertas de performance
+        if integrity_check["performance_metrics"]["inference_time_ms"]:
+            inference_time = integrity_check["performance_metrics"]["inference_time_ms"]
+            if inference_time > 100:  # Requirement: <100ms
+                detailed_report["alerts"].append({
+                    "level": "performance",
+                    "message": f"Tiempo de inferencia ({inference_time}ms) excede el límite de 100ms"
+                })
+        
+        return detailed_report
+
+
     @classmethod
     def cleanup(cls) -> None:
         """Limpia recursos de modelos."""

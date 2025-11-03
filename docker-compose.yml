@@ -86,9 +86,7 @@ services:
 networks:
   efimero-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+    # Dejar que Docker asigne automáticamente el rango IP para evitar conflictos
 
 volumes:
   redis-data:

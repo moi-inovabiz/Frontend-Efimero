@@ -554,9 +554,12 @@ def main():
     """
     Función principal para entrenar ambos modelos XGBoost.
     """
-    # Configuración
-    data_path = "../../data/synthetic_training_data.csv"
-    models_dir = "../models"
+    # Configuración - usar rutas absolutas para evitar problemas
+    import os
+    script_dir = Path(__file__).parent.absolute()
+    project_root = script_dir.parent.parent
+    data_path = project_root / "data" / "synthetic_training_data.csv"
+    models_dir = project_root / "backend" / "models"
     
     logger.info("🎯 Iniciando entrenamiento dual XGBoost para Frontend Efímero")
     

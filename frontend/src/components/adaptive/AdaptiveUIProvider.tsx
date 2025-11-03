@@ -127,7 +127,9 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
       element_id: elementId,
       element_class: elementClass,
       timestamp: new Date().toISOString(),
-      session_duration: Date.now() - (ephemeralContext ? new Date(ephemeralContext.hora_local).getTime() : 0)
+      session_duration: Date.now() - (ephemeralContext ? new Date(ephemeralContext.hora_local).getTime() : 0),
+      page_path: window.location.pathname,
+      design_tokens_used: designTokens
     };
 
     AdaptiveUIClient.sendFeedback(feedback);

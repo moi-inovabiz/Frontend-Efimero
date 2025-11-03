@@ -65,10 +65,10 @@ class BehaviorLog(BaseModel):
     user_id: Optional[str] = None
     user_temp_id: Optional[str] = None
     timestamp: datetime
-    page_path: str
+    page_path: Optional[str] = None
     action_type: str  # "click", "scroll", "hover", etc.
     element_id: Optional[str] = None
     element_class: Optional[str] = None
     session_duration: Optional[int] = None  # milliseconds
-    design_tokens_used: DesignTokens
+    design_tokens_used: Optional[DesignTokens] = None
     performance_metrics: Optional[Dict[str, Any]] = None

@@ -41,5 +41,7 @@ export interface BehaviorFeedback {
   element_class?: string;
   timestamp: string;
   session_duration?: number;
+  page_path: string;
+  design_tokens_used: DesignTokens;
   performance_metrics?: Record<string, any>;
 }

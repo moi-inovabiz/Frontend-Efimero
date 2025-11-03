@@ -1,0 +1,15 @@
+{
+  "user_context": {
+    "hora_local": "2025-11-02T15:30:00",
+    "prefers_color_scheme": "light",
+    "viewport_width": 1920,
+    "viewport_height": 1080,
+    "touch_enabled": false,
+    "device_pixel_ratio": 1.0,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "referer": "http://localhost:3000",
+    "session_id": "test_session_123",
+    "page_path": "/test"
+  },
+  "user_temp_id": "test_user_123"
+}

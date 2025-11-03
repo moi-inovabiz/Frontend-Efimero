@@ -6,6 +6,7 @@ Maneja JWT y usuarios anónimos con cookies de primera parte
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import jwt
+from jwt.exceptions import InvalidSignatureError, ExpiredSignatureError, InvalidTokenError
 from fastapi import HTTPException, status, Request
 from fastapi.security import HTTPBearer
 import uuid
@@ -50,12 +51,12 @@ class AuthService:
             )
             return payload
             
-        except jwt.ExpiredSignatureError:
+        except ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token expirado"
             )
-        except jwt.JWTError:
+        except (InvalidSignatureError, InvalidTokenError):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token inválido"

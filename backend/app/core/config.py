@@ -17,18 +17,18 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     
     # Security
-    SECRET_KEY: str
+    SECRET_KEY: str = "dev-secret-key-for-testing-only"
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     
     # JWT Configuration
-    JWT_SECRET_KEY: str
+    JWT_SECRET_KEY: str = "dev-jwt-secret-key-for-testing-only"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
     # Firebase Configuration
-    FIREBASE_CREDENTIALS_PATH: str
-    FIREBASE_PROJECT_ID: str
+    FIREBASE_CREDENTIALS_PATH: str = "test_credentials.json"
+    FIREBASE_PROJECT_ID: str = "test-frontend-efimero"
     
     # ML Models Configuration
     MODELS_PATH: str = "models"

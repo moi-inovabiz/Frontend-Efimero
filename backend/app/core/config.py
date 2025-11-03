@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
+    # Database Configuration
+    DATABASE_URL: str = "sqlite+aiosqlite:///./frontend_efimero.db"  # SQLite for dev
+    # For production PostgreSQL: "postgresql+asyncpg://user:password@localhost:5432/frontend_efimero"
+    
     # Firebase Configuration
     FIREBASE_CREDENTIALS_PATH: str = "test_credentials.json"
     FIREBASE_PROJECT_ID: str = "test-frontend-efimero"

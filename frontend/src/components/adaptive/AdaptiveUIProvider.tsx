@@ -9,6 +9,7 @@ import React, { useEffect, useState, ReactNode } from 'react';
 import { useEphemeralContext, UserContextData } from '@/hooks/useEphemeralContext';
 import { AdaptiveUIClient } from '@/lib/api-client';
 import { DesignTokens } from '@/types/adaptive-ui';
+import { startBehaviorTracking, stopBehaviorTracking } from '@/lib/analytics/behavior-tracker';
 
 interface AdaptiveUIProviderProps {
   children: ReactNode;
@@ -28,6 +29,17 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
   const [designTokens, setDesignTokens] = useState<DesignTokens | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Iniciar behavior tracking al montar el componente
+  useEffect(() => {
+    console.log('🎯 Iniciando behavior tracking...');
+    startBehaviorTracking();
+    
+    return () => {
+      console.log('🎯 Deteniendo behavior tracking...');
+      stopBehaviorTracking();
+    };
+  }, []);
 
   useEffect(() => {
     /**
@@ -46,7 +58,18 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
           user_temp_id: AdaptiveUIClient.getUserTempId()
         };
 
-        console.log('🎯 Solicitando diseño adaptativo...', request);
+        console.log('🎯 Solicitando diseño adaptativo con contexto expandido...', {
+          basic_fields: 9,
+          geolocation_fields: 3,
+          hardware_fields: 3,
+          network_fields: 5,
+          accessibility_fields: 3,
+          visual_fields: 2,
+          device_fields: 9,
+          storage_fields: 3,
+          behavior_fields: 8,
+          total_fields: 45
+        });
 
         const response = await AdaptiveUIClient.requestAdaptiveDesign(request);
         

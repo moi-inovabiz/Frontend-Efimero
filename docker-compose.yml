@@ -9,6 +9,9 @@ services:
       - DEBUG=true
       - SECRET_KEY=docker-secret-key-for-development-only
       - JWT_SECRET_KEY=docker-jwt-secret-key-for-development-only
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRE_MINUTES=1440
+      - DATABASE_URL=sqlite+aiosqlite:///./data/frontend_efimero.db
       - FIREBASE_CREDENTIALS_PATH=/app/test_credentials.json
       - FIREBASE_PROJECT_ID=frontend-efimero-docker
       - HOST=0.0.0.0
@@ -16,6 +19,7 @@ services:
       - CORS_ORIGINS=["http://localhost:3000", "http://frontend:3000"]
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "backend"]
     volumes:
+      - ./backend:/app
       - ./backend/models:/app/models
       - ./backend/data:/app/data
     restart: unless-stopped
@@ -35,6 +39,7 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+      - API_URL=http://backend:8000/api/v1
       - NODE_ENV=production
     volumes:
       - ./frontend/public:/app/public

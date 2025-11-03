@@ -1,0 +1,310 @@
+{
+  "monitoring_system": {
+    "version": "1.0.0",
+    "description": "XGBoost Model Performance Monitoring Configuration",
+    "last_updated": "2025-11-02T00:00:00Z"
+  },
+  "environment": {
+    "type": "production",
+    "debug_mode": false,
+    "log_level": "INFO"
+  },
+  "monitoring_intervals": {
+    "performance_check_minutes": 5,
+    "drift_detection_hours": 1,
+    "metrics_flush_seconds": 30,
+    "health_check_minutes": 5,
+    "dashboard_update_seconds": 60
+  },
+  "performance_thresholds": {
+    "latency": {
+      "max_average_ms": 100.0,
+      "max_p95_ms": 150.0,
+      "max_p99_ms": 200.0,
+      "warning_threshold_ms": 80.0
+    },
+    "accuracy": {
+      "min_confidence": 0.7,
+      "confidence_warning_threshold": 0.75,
+      "accuracy_drop_threshold": 0.05
+    },
+    "throughput": {
+      "min_requests_per_minute": 10.0,
+      "warning_threshold_per_minute": 20.0
+    },
+    "reliability": {
+      "max_error_rate": 0.02,
+      "warning_error_rate": 0.01,
+      "max_timeout_rate": 0.005
+    }
+  },
+  "drift_detection": {
+    "feature_drift": {
+      "drift_threshold": 0.15,
+      "warning_threshold": 0.10,
+      "detection_method": "kolmogorov_smirnov",
+      "baseline_window_days": 30,
+      "comparison_window_hours": 24
+    },
+    "prediction_drift": {
+      "drift_threshold": 0.12,
+      "warning_threshold": 0.08,
+      "categorical_drift_method": "chi_square",
+      "numerical_drift_method": "ks_test"
+    },
+    "data_quality": {
+      "missing_value_threshold": 0.05,
+      "outlier_detection_enabled": true,
+      "schema_validation_enabled": true
+    }
+  },
+  "alerting": {
+    "channels": {
+      "email": {
+        "enabled": true,
+        "smtp_server": "smtp.company.com",
+        "smtp_port": 587,
+        "username": "ml-alerts@company.com",
+        "use_tls": true,
+        "recipients": [
+          "ml-team@company.com",
+          "ops-team@company.com",
+          "product-team@company.com"
+        ]
+      },
+      "slack": {
+        "enabled": true,
+        "webhook_url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+        "channel": "#ml-alerts",
+        "mention_users": ["@ml-team", "@ops-oncall"],
+        "thread_alerts": true
+      },
+      "pagerduty": {
+        "enabled": false,
+        "service_key": "YOUR_PAGERDUTY_SERVICE_KEY",
+        "escalation_policy": "ML_ESCALATION_POLICY",
+        "severity_mapping": {
+          "high": "critical",
+          "medium": "warning",
+          "low": "info"
+        }
+      },
+      "webhook": {
+        "enabled": false,
+        "url": "https://your-webhook-endpoint.com/alerts",
+        "authentication": {
+          "type": "bearer_token",
+          "token": "YOUR_WEBHOOK_TOKEN"
+        }
+      }
+    },
+    "alert_rules": {
+      "performance_anomalies": {
+        "enabled": true,
+        "cooldown_minutes": 30,
+        "severity_levels": {
+          "high": ["high_latency", "high_error_rate"],
+          "medium": ["low_confidence", "low_throughput"],
+          "low": ["minor_performance_degradation"]
+        }
+      },
+      "drift_detection": {
+        "enabled": true,
+        "cooldown_minutes": 60,
+        "feature_drift_severity": "medium",
+        "prediction_drift_severity": "high"
+      },
+      "system_health": {
+        "enabled": true,
+        "cooldown_minutes": 15,
+        "service_down_severity": "high",
+        "storage_issues_severity": "high"
+      }
+    },
+    "notification_templates": {
+      "performance_alert": {
+        "subject": "[{severity}] Model Performance Alert: {alert_type}",
+        "body_template": "Performance issue detected in XGBoost model:\n\nAlert Type: {alert_type}\nSeverity: {severity}\nCurrent Value: {current_value}\nThreshold: {threshold}\nTimestamp: {timestamp}\n\nDescription: {description}\n\nRecommended Actions:\n{recommended_actions}\n\nDashboard: {dashboard_url}"
+      },
+      "drift_alert": {
+        "subject": "[{severity}] Data Drift Alert: {drift_type}",
+        "body_template": "Data drift detected in XGBoost model:\n\nDrift Type: {drift_type}\nDrift Score: {drift_score}\nThreshold: {threshold}\nAffected Features: {affected_features}\nTimestamp: {timestamp}\n\nThis may indicate changes in data distribution that could affect model performance.\n\nRecommended Actions:\n- Review data quality\n- Consider model retraining\n- Analyze feature importance changes\n\nDashboard: {dashboard_url}"
+      }
+    }
+  },
+  "storage": {
+    "backend": "firebase",
+    "firebase": {
+      "credentials_path": "config/firebase-credentials.json",
+      "database_url": "https://frontend-efimero-ml.firebaseio.com",
+      "collections": {
+        "metrics": "model_performance_metrics",
+        "alerts": "monitoring_alerts",
+        "drift_data": "drift_detection_data",
+        "baselines": "performance_baselines",
+        "health_checks": "system_health_checks"
+      }
+    },
+    "local_fallback": {
+      "enabled": true,
+      "directory": "data/monitoring",
+      "file_rotation_days": 30,
+      "compression_enabled": true
+    },
+    "data_retention": {
+      "metrics_retention_days": 90,
+      "alerts_retention_days": 365,
+      "drift_data_retention_days": 180,
+      "health_checks_retention_days": 30
+    }
+  },
+  "dashboard": {
+    "web_interface": {
+      "enabled": true,
+      "host": "localhost",
+      "port": 8080,
+      "authentication_required": true,
+      "session_timeout_minutes": 60
+    },
+    "real_time_updates": {
+      "enabled": true,
+      "update_interval_seconds": 30,
+      "websocket_enabled": true
+    },
+    "visualization": {
+      "performance_charts": {
+        "latency_trend": true,
+        "throughput_trend": true,
+        "error_rate_trend": true,
+        "confidence_trend": true
+      },
+      "drift_charts": {
+        "feature_drift_heatmap": true,
+        "prediction_drift_timeline": true,
+        "data_quality_metrics": true
+      },
+      "alert_dashboard": {
+        "recent_alerts": true,
+        "alert_frequency": true,
+        "alert_severity_distribution": true
+      }
+    },
+    "export_options": {
+      "report_formats": ["json", "pdf", "csv"],
+      "scheduled_reports": {
+        "enabled": true,
+        "daily_summary": true,
+        "weekly_analysis": true,
+        "monthly_report": true
+      }
+    }
+  },
+  "model_management": {
+    "version_tracking": {
+      "enabled": true,
+      "track_classifier_version": true,
+      "track_regressor_version": true,
+      "version_comparison_enabled": true
+    },
+    "performance_baselines": {
+      "auto_update_baselines": false,
+      "baseline_calculation_method": "rolling_average",
+      "baseline_window_days": 7,
+      "baseline_update_threshold": 0.1
+    },
+    "model_validation": {
+      "enabled": true,
+      "validation_on_startup": true,
+      "periodic_validation": true,
+      "validation_interval_hours": 24
+    }
+  },
+  "health_monitoring": {
+    "system_checks": {
+      "memory_usage_threshold": 0.8,
+      "cpu_usage_threshold": 0.7,
+      "disk_usage_threshold": 0.9,
+      "network_connectivity": true
+    },
+    "service_checks": {
+      "api_endpoint_health": true,
+      "database_connectivity": true,
+      "model_loading_status": true,
+      "feature_processor_status": true
+    },
+    "auto_recovery": {
+      "enabled": true,
+      "restart_on_failure": true,
+      "max_restart_attempts": 3,
+      "restart_cooldown_minutes": 5
+    }
+  },
+  "security": {
+    "authentication": {
+      "api_key_required": true,
+      "token_expiration_hours": 24,
+      "rate_limiting": {
+        "enabled": true,
+        "requests_per_minute": 100
+      }
+    },
+    "data_privacy": {
+      "anonymize_user_data": true,
+      "encrypt_sensitive_metrics": true,
+      "audit_logging": true
+    },
+    "access_control": {
+      "role_based_access": true,
+      "admin_users": ["admin@company.com"],
+      "readonly_users": ["analyst@company.com"]
+    }
+  },
+  "integration": {
+    "external_services": {
+      "grafana": {
+        "enabled": false,
+        "dashboard_url": "https://grafana.company.com/d/ml-monitoring",
+        "api_key": "YOUR_GRAFANA_API_KEY"
+      },
+      "datadog": {
+        "enabled": false,
+        "api_key": "YOUR_DATADOG_API_KEY",
+        "app_key": "YOUR_DATADOG_APP_KEY"
+      },
+      "prometheus": {
+        "enabled": false,
+        "endpoint": "http://prometheus:9090",
+        "metrics_export_enabled": true
+      }
+    },
+    "ci_cd_integration": {
+      "deployment_hooks": {
+        "pre_deployment_validation": true,
+        "post_deployment_monitoring": true,
+        "rollback_on_performance_degradation": true
+      },
+      "automated_testing": {
+        "performance_regression_tests": true,
+        "drift_detection_tests": true,
+        "alert_system_tests": true
+      }
+    }
+  },
+  "advanced_features": {
+    "anomaly_detection": {
+      "statistical_anomaly_detection": true,
+      "ml_based_anomaly_detection": false,
+      "seasonal_pattern_detection": true
+    },
+    "predictive_alerts": {
+      "enabled": false,
+      "prediction_horizon_hours": 6,
+      "confidence_threshold": 0.8
+    },
+    "adaptive_thresholds": {
+      "enabled": false,
+      "threshold_adjustment_method": "statistical",
+      "adaptation_period_days": 7
+    }
+  }
+}

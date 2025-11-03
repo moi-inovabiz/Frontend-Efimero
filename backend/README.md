@@ -68,6 +68,31 @@ backend/
 - `POST /api/v1/adaptive-ui/predict` - Predicción adaptativa
 - `POST /api/v1/adaptive-ui/feedback` - Feedback de comportamiento
 
+## Documentación
+
+### Feature Engineering
+- **[Architecture Guide](docs/feature_engineering.md)** - Arquitectura completa del sistema de ingeniería de características
+- **[Examples & Use Cases](docs/feature_engineering_examples.md)** - Ejemplos prácticos y casos de uso reales
+- **[Quick Reference](docs/feature_engineering_reference.md)** - Referencia rápida para desarrolladores
+
+### Model Training
+- **[Training Pipeline](docs/model_training.md)** - Pipeline completo de entrenamiento XGBoost
+- **[Training Scripts](docs/training_scripts.md)** - Documentación de scripts de entrenamiento
+- **[Data Schemas](docs/model_schemas.md)** - Esquemas de datos y formatos
+
+### Model Retraining
+- **[Retraining Guidelines](docs/model_retraining.md)** - Procedimientos completos de reentrenamiento
+- **[Retraining Scripts](docs/retraining_scripts.md)** - Scripts automatizados de reentrenamiento
+
+### Performance Monitoring
+- **[Monitoring System](docs/performance_monitoring.md)** - Infraestructura completa de monitoreo en tiempo real
+- **[Monitoring Scripts](docs/monitoring_scripts.md)** - Scripts de configuración y gestión del monitoreo
+
+### Testing
+- **Cobertura**: 74 tests unitarios, integración y rendimiento
+- **Performance**: <100ms de latencia validada
+- **Fixtures**: Sistema completo de datos de prueba
+
 ## Desarrollo
 
 ```bash

@@ -29,9 +29,17 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
   const [designTokens, setDesignTokens] = useState<DesignTokens | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Protección contra hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
   
   // Iniciar behavior tracking al montar el componente
   useEffect(() => {
+    if (!isMounted) return;
+    
     console.log('🎯 Iniciando behavior tracking...');
     startBehaviorTracking();
     
@@ -39,14 +47,14 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
       console.log('🎯 Deteniendo behavior tracking...');
       stopBehaviorTracking();
     };
-  }, []);
+  }, [isMounted]);
 
   useEffect(() => {
     /**
      * Ejecutar FASE 2: Decisión Inteligente
-     * Solo cuando el contexto efímero esté disponible
+     * Solo cuando el contexto efímero esté disponible Y el componente esté montado
      */
-    if (!ephemeralContext) return;
+    if (!ephemeralContext || !isMounted) return;
 
     const requestAdaptiveDesign = async () => {
       try {
@@ -103,7 +111,7 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
     };
 
     requestAdaptiveDesign();
-  }, [ephemeralContext]);
+  }, [ephemeralContext, isMounted]);
 
   /**
    * FASE 3: Inyección de tokens de diseño (Zero Flicker)

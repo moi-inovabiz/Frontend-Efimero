@@ -156,8 +156,27 @@ export class AuthError extends Error {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    
+    // Si hay detalles de validación de Pydantic, formatearlos
+    let errorMessage = errorData.detail || 'Error en la solicitud';
+    
+    if (Array.isArray(errorData.detail)) {
+      // FastAPI validation errors format
+      const validationErrors = errorData.detail.map((err: any) => {
+        const field = err.loc?.join('.') || 'unknown';
+        return `${field}: ${err.msg}`;
+      }).join(', ');
+      errorMessage = `Errores de validación: ${validationErrors}`;
+    }
+    
+    console.error('[AUTH] API Error:', {
+      status: response.status,
+      message: errorMessage,
+      details: errorData
+    });
+    
     throw new AuthError(
-      errorData.detail || 'Error en la solicitud',
+      errorMessage,
       response.status,
       errorData
     );
@@ -171,6 +190,11 @@ async function handleResponse<T>(response: Response): Promise<T> {
  * Register new user
  */
 export async function register(data: RegistrationData): Promise<AuthResponse> {
+  console.log('[AUTH] Registering user with data:', {
+    ...data,
+    password: '***REDACTED***'
+  });
+  
   const response = await fetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: {
@@ -178,6 +202,13 @@ export async function register(data: RegistrationData): Promise<AuthResponse> {
     },
     body: JSON.stringify(data),
   });
+
+  console.log('[AUTH] Register response status:', response.status);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    console.error('[AUTH] Register error:', errorData);
+  }
 
   const authResponse = await handleResponse<AuthResponse>(response);
   

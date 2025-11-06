@@ -30,6 +30,15 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
   const [emailError, setEmailError] = useState<string | null>(null);
   
   const [rutValid, setRutValid] = useState(false);
+  const [showPasswordRequirements, setShowPasswordRequirements] = useState(false);
+  
+  // Password validation states
+  const [passwordRequirements, setPasswordRequirements] = useState({
+    minLength: false,
+    hasUpperCase: false,
+    hasLowerCase: false,
+    hasNumber: false,
+  });
 
   // RUT validation (Chilean módulo 11 algorithm)
   const validateRUT = (rutValue: string): boolean => {
@@ -67,23 +76,46 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
     return `${body}-${checkDigit}`;
   };
 
-  // Handle RUT input change
+  // Handle RUT input change with auto-formatting
   const handleRutChange = (value: string) => {
-    const cleaned = value.replace(/[^0-9kK-]/g, '').toUpperCase();
-    setRut(cleaned);
+    // Remove all non-alphanumeric except hyphen
+    let cleaned = value.replace(/[^0-9kK-]/g, '').toUpperCase();
     
-    if (cleaned.length >= 3) {
-      const isValid = validateRUT(cleaned);
+    // Remove existing hyphens for re-formatting
+    cleaned = cleaned.replace(/-/g, '');
+    
+    // Limit to 9 characters max (8 digits + 1 check digit)
+    if (cleaned.length > 9) {
+      cleaned = cleaned.substring(0, 9);
+    }
+    
+    // Auto-add hyphen before last character if length >= 2
+    let formatted = cleaned;
+    if (cleaned.length >= 2) {
+      const body = cleaned.slice(0, -1);
+      const checkDigit = cleaned.slice(-1);
+      formatted = `${body}-${checkDigit}`;
+    }
+    
+    setRut(formatted);
+    
+    // First check minimum length (at least 7 digits + check digit = 8 total)
+    if (cleaned.length > 0 && cleaned.length < 8) {
+      // Block RUTs that are too short
+      setRutError('RUT muy corto - mínimo 7 dígitos + verificador');
+      setRutValid(false);
+    } else if (cleaned.length >= 8) {
+      // Only validate if length is adequate
+      const isValid = validateRUT(formatted);
       setRutValid(isValid);
       
       if (!isValid) {
-        setRutError('RUT inválido');
+        setRutError('RUT inválido - verifica el dígito verificador');
       } else {
         setRutError(null);
         
         // Auto-detect tipo_cliente from RUT prefix
-        const cleanedNoHyphen = cleaned.replace(/-/g, '');
-        const prefix = cleanedNoHyphen.substring(0, 2);
+        const prefix = cleaned.substring(0, 2);
         const tipoCliente = (prefix === '70' || prefix === '71' || prefix === '72' || 
                             prefix === '73' || prefix === '74' || prefix === '75' || 
                             prefix === '76' || prefix === '77' || prefix === '78' || 
@@ -97,6 +129,7 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
         onUpdate({ tipo_cliente: tipoCliente });
       }
     } else {
+      // Empty RUT
       setRutError(null);
       setRutValid(false);
     }
@@ -116,6 +149,18 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
       /[a-z]/.test(password) &&
       /[0-9]/.test(password)
     );
+  };
+  
+  // Update password requirements in real-time
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    
+    setPasswordRequirements({
+      minLength: value.length >= 8,
+      hasUpperCase: /[A-Z]/.test(value),
+      hasLowerCase: /[a-z]/.test(value),
+      hasNumber: /[0-9]/.test(value),
+    });
   };
 
   // Handle email blur
@@ -158,8 +203,12 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
       return;
     }
     
-    if (!rut || !rutValid) {
-      setRutError('RUT inválido o incompleto');
+    // Validate RUT exists, is valid, and has minimum length
+    const cleanedRut = rut.replace(/[^0-9kK]/g, '');
+    if (!rut || !rutValid || cleanedRut.length < 8) {
+      setRutError(cleanedRut.length < 8 && cleanedRut.length > 0 
+        ? 'RUT muy corto - mínimo 7 dígitos + verificador' 
+        : 'RUT inválido o incompleto');
       return;
     }
     
@@ -240,7 +289,7 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
       {/* RUT */}
       <div>
         <label htmlFor="rut" className="block text-sm font-medium text-gray-300 mb-2">
-          RUT * <span className="text-gray-500 text-xs">(formato: 12345678-9)</span>
+          RUT * <span className="text-gray-500 text-xs">(ejemplo: 12345678-9)</span>
         </label>
         <input
           type="text"
@@ -248,6 +297,7 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
           value={rut}
           onChange={(e) => handleRutChange(e.target.value)}
           placeholder="12345678-9"
+          maxLength={10}
           className={`w-full px-4 py-3 bg-gray-700/50 border ${
             rutError ? 'border-red-500' : rutValid ? 'border-green-500' : 'border-gray-600'
           } rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-white`}
@@ -257,6 +307,11 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
         {rutValid && !rutError && (
           <p className="text-green-400 text-sm mt-1 flex items-center">
             <span className="mr-1">✓</span> RUT válido
+          </p>
+        )}
+        {!rutValid && !rutError && rut.length === 0 && (
+          <p className="text-gray-500 text-xs mt-1">
+            💡 Debe ser un RUT chileno válido (con dígito verificador correcto)
           </p>
         )}
       </div>
@@ -285,16 +340,36 @@ export default function Step1BasicData({ data, onUpdate, onNext }: Step1Props) {
           type="password"
           id="password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => handlePasswordChange(e.target.value)}
+          onFocus={() => setShowPasswordRequirements(true)}
           onBlur={handlePasswordBlur}
           className={`w-full px-4 py-3 bg-gray-700/50 border ${
             passwordError ? 'border-red-500' : 'border-gray-600'
           } rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-white`}
           required
         />
-        <p className="text-gray-500 text-xs mt-1">
-          Mínimo 8 caracteres, incluir mayúsculas, minúsculas y números
-        </p>
+        
+        {/* Password Requirements Checklist */}
+        {(showPasswordRequirements || password.length > 0) && (
+          <div className="mt-2 space-y-1">
+            <div className={`text-xs flex items-center ${passwordRequirements.minLength ? 'text-green-400' : 'text-gray-500'}`}>
+              <span className="mr-2">{passwordRequirements.minLength ? '✓' : '○'}</span>
+              Mínimo 8 caracteres
+            </div>
+            <div className={`text-xs flex items-center ${passwordRequirements.hasUpperCase ? 'text-green-400' : 'text-gray-500'}`}>
+              <span className="mr-2">{passwordRequirements.hasUpperCase ? '✓' : '○'}</span>
+              Al menos una mayúscula
+            </div>
+            <div className={`text-xs flex items-center ${passwordRequirements.hasLowerCase ? 'text-green-400' : 'text-gray-500'}`}>
+              <span className="mr-2">{passwordRequirements.hasLowerCase ? '✓' : '○'}</span>
+              Al menos una minúscula
+            </div>
+            <div className={`text-xs flex items-center ${passwordRequirements.hasNumber ? 'text-green-400' : 'text-gray-500'}`}>
+              <span className="mr-2">{passwordRequirements.hasNumber ? '✓' : '○'}</span>
+              Al menos un número
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Confirm Password */}

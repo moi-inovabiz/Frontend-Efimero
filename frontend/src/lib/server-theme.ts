@@ -9,7 +9,7 @@ import { generateTheme, themeToCSS } from './theme-generator';
 // En Docker, el frontend debe conectarse al backend usando el nombre del servicio
 // API_URL es para llamadas desde el servidor (SSR)
 // NEXT_PUBLIC_API_URL es para llamadas desde el cliente (browser)
-const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000/api/v1';
+const API_BASE_URL = process.env.INTERNAL_API_URL || process.env.API_URL || 'http://backend:8000/api/v1';
 
 interface Usuario {
   esquema_colores?: string;
@@ -37,8 +37,11 @@ async function getUserFromServer(): Promise<Usuario | null> {
     const response = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
       },
       cache: 'no-store', // No cachear para obtener datos frescos
+      // Agregar timeout para evitar bloqueos de SSR
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!response.ok) {

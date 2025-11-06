@@ -45,6 +45,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Protección contra hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   /**
    * Load user profile on mount if token exists
@@ -121,8 +127,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   useEffect(() => {
-    loadUser();
-  }, [loadUser]);
+    if (isMounted) {
+      loadUser();
+    }
+  }, [loadUser, isMounted]);
 
   /**
    * Login user
@@ -209,9 +217,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log('[AuthContext] Tema aplicado exitosamente');
       }
     } catch (err) {
-      const errorMessage = err instanceof AuthError 
-        ? err.message 
-        : 'Error al registrarse';
+      let errorMessage = 'Error al registrarse';
+      
+      if (err instanceof AuthError) {
+        errorMessage = err.message;
+        
+        // Mejorar mensajes de error específicos
+        if (err.message.includes('RUT inválido')) {
+          errorMessage = 'El RUT ingresado no es válido. Por favor verifica el dígito verificador.';
+        } else if (err.message.includes('Email ya registrado')) {
+          errorMessage = 'Este email ya está registrado. ¿Deseas iniciar sesión?';
+        } else if (err.message.includes('RUT ya registrado')) {
+          errorMessage = 'Este RUT ya está registrado. ¿Deseas iniciar sesión?';
+        } else if (err.message.includes('Password')) {
+          errorMessage = 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número.';
+        }
+      }
+      
       setError(errorMessage);
       throw err;
     } finally {

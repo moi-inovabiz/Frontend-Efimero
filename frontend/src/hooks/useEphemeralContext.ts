@@ -88,12 +88,21 @@ export interface UserContextData {
 
 export function useEphemeralContext(): UserContextData | null {
   const [contextData, setContextData] = useState<UserContextData | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Protección contra hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     /**
      * FASE 1 EXPANDIDA: Captura de 46+ datos efímeros del navegador
      * Sin requerir permisos del usuario
+     * Solo ejecutar en el cliente para evitar problemas de SSR
      */
+    
+    if (!isMounted || typeof window === 'undefined') return;
     
     const captureContext = (): UserContextData => {
       // Generar session_id único para esta sesión
@@ -276,7 +285,7 @@ export function useEphemeralContext(): UserContextData | null {
       lightModeQuery.removeEventListener('change', handleColorSchemeChange);
       clearInterval(behaviorInterval);
     };
-  }, []);
+  }, [isMounted]);
 
   return contextData;
 }

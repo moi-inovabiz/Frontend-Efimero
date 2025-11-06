@@ -90,6 +90,12 @@ async def register(
     Returns JWT access token + refresh token on success.
     """
     
+    try:
+        # Log incoming data (without password)
+        print(f"[REGISTER] Received registration data: {user_data.model_dump(exclude={'password'})}")
+    except Exception as e:
+        print(f"[REGISTER] Error logging data: {e}")
+    
     # 1. Validate RUT
     if not validate_rut(user_data.rut):
         raise HTTPException(

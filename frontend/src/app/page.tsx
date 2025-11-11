@@ -1,10 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { PersonaDebugPanel } from '@/components/persona/PersonaDebugPanel';
 
 export default function Home() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black p-4">
+      {/* Persona Debug Panel */}
+      <PersonaDebugPanel position="bottom-right" collapsed={false} />
+      
       <div className="text-center">
         {/* Header */}
         <div className="mb-12">
@@ -21,6 +25,21 @@ export default function Home() {
 
         {/* Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+          {/* Demo Button - NUEVO */}
+          <Link
+            href="/demo"
+            className="group relative w-64 px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl font-semibold text-white shadow-lg hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105"
+          >
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              Ver Demo Adaptativa
+            </span>
+            <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-purple-400 to-pink-500 opacity-0 group-hover:opacity-20 transition-opacity" />
+          </Link>
+          
           {/* Register Button */}
           <Link
             href="/register"
@@ -53,10 +72,18 @@ export default function Home() {
         {/* Info Cards */}
         <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
           <div className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
+            <div className="text-cyan-400 text-3xl mb-2">👤</div>
+            <h3 className="text-lg font-semibold text-white mb-2">Personas Simuladas</h3>
+            <p className="text-sm text-gray-400">
+              26 perfiles genéricos se asignan aleatoriamente para UI consistente
+            </p>
+          </div>
+
+          <div className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
             <div className="text-cyan-400 text-3xl mb-2">🧠</div>
             <h3 className="text-lg font-semibold text-white mb-2">ML Adaptativo</h3>
             <p className="text-sm text-gray-400">
-              XGBoost con 45 features automáticas para personalización profunda
+              XGBoost con predicciones basadas en demografía y comportamiento
             </p>
           </div>
 
@@ -64,15 +91,7 @@ export default function Home() {
             <div className="text-cyan-400 text-3xl mb-2">🎨</div>
             <h3 className="text-lg font-semibold text-white mb-2">UI Dinámica</h3>
             <p className="text-sm text-gray-400">
-              Interfaz que se adapta en tiempo real a tu comportamiento
-            </p>
-          </div>
-
-          <div className="bg-gray-800/30 backdrop-blur-sm border border-gray-700 rounded-lg p-6">
-            <div className="text-cyan-400 text-3xl mb-2">🚗</div>
-            <h3 className="text-lg font-semibold text-white mb-2">Mercedes-Benz</h3>
-            <p className="text-sm text-gray-400">
-              Experiencia premium para clientes persona y empresa en Chile
+              Interfaz que se adapta en tiempo real a la persona asignada
             </p>
           </div>
         </div>

@@ -370,3 +370,279 @@ async def update_visual_preferences(
     await db.refresh(current_user)
     
     return user_to_response(current_user)
+
+
+# ==================== AI PREDICTIONS ====================
+
+@router.post("/predict-preferences")
+async def predict_visual_preferences(
+    demographic_data: Dict[str, Any],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Predice preferencias visuales basadas en datos demográficos del usuario.
+    
+    Este endpoint utiliza el sistema de ML para generar predicciones de:
+    - Densidad de información
+    - Estilo de tipografía
+    - Nivel de animaciones
+    - Esquema de colores
+    - Y otras preferencias visuales
+    
+    Args:
+        demographic_data: Dict con datos demográficos (edad, región, tipo_cliente, etc.)
+    
+    Returns:
+        Dict con preferencias visuales predichas y nivel de confianza
+    """
+    from app.ml.model_manager import ModelManager
+    from app.ml.feature_processor import FeatureProcessor
+    from app.models.adaptive_ui import UserContext
+    from datetime import datetime
+    import numpy as np
+    
+    try:
+        # Extraer datos demográficos
+        fecha_nacimiento = demographic_data.get('fecha_nacimiento')
+        region = demographic_data.get('region', 'Metropolitana')
+        tipo_cliente = demographic_data.get('tipo_cliente', 'persona')
+        interes_principal = demographic_data.get('interes_principal', 'compra')
+        uso_previsto = demographic_data.get('uso_previsto', 'personal')
+        presupuesto = demographic_data.get('presupuesto', 'medio')
+        
+        # Calcular edad si hay fecha de nacimiento
+        edad = None
+        if fecha_nacimiento:
+            try:
+                if isinstance(fecha_nacimiento, str):
+                    fecha_nac = datetime.fromisoformat(fecha_nacimiento.replace('Z', '+00:00'))
+                else:
+                    fecha_nac = fecha_nacimiento
+                edad = (datetime.now() - fecha_nac).days // 365
+            except Exception as e:
+                print(f"[PREDICT] Error calculando edad: {e}")
+                edad = 30  # Valor por defecto
+        else:
+            edad = 30  # Valor por defecto si no hay fecha
+        
+        # Crear contexto de usuario simulado basado en datos demográficos
+        user_context = UserContext(
+            hora_local=datetime.now(),
+            prefers_color_scheme='light',  # Por defecto
+            viewport_width=1920,
+            viewport_height=1080,
+            touch_enabled=False,
+            device_pixel_ratio=1.0,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            session_id=f"prediction_{datetime.now().timestamp()}",
+            page_path="/register",
+            referer=None
+        )
+        
+        # Preparar features usando FeatureProcessor
+        feature_processor = FeatureProcessor()
+        
+        # Crear datos históricos simulados basados en demografía
+        historical_data = []
+        social_context = {
+            'avg_session_duration': 300.0,
+            'popular_preferences': {
+                'color_scheme': 'light',
+                'density': 'medium'
+            }
+        }
+        
+        # Generar features
+        features = feature_processor.prepare_features_v2(
+            user_context=user_context,
+            historical_data=historical_data,
+            social_context=social_context,
+            is_authenticated=False
+        )
+        
+        # PREDICCIÓN CON ML
+        # Asegurarse de que los modelos estén cargados
+        if not ModelManager._is_loaded:
+            await ModelManager.load_models()
+        
+        # Hacer predicción dual
+        prediction_result = ModelManager.predict_dual(
+            user_context=user_context,
+            historical_data=historical_data,
+            social_context=social_context,
+            is_authenticated=False
+        )
+        
+        # Mapear predicciones a preferencias específicas del usuario
+        css_classes = prediction_result["css_classes"]
+        css_variables = prediction_result["css_variables"]
+        confidence = prediction_result["confidence"]
+        
+        # Extraer preferencias específicas de las clases CSS
+        preferencias_predichas = {
+            # Densidad de información
+            "densidad_informacion": _extract_density_preference(css_classes),
+            
+            # Estilo de tipografía
+            "estilo_tipografia": _extract_typography_preference(css_classes),
+            
+            # Nivel de animaciones
+            "nivel_animaciones": _extract_animation_level(css_classes, edad),
+            
+            # Esquema de colores
+            "esquema_colores": _extract_color_scheme(css_classes),
+            
+            # Layout preferido
+            "preferencia_layout": _extract_layout_preference(tipo_cliente, presupuesto),
+            
+            # Estilo de navegación
+            "estilo_navegacion": _extract_navigation_style(edad, tipo_cliente),
+            
+            # Variables CSS predichas
+            "css_variables": css_variables,
+            
+            # Información adicional
+            "metadata": {
+                "edad_estimada": edad,
+                "region": region,
+                "tipo_cliente": tipo_cliente,
+                "interes_principal": interes_principal
+            }
+        }
+        
+        return {
+            "success": True,
+            "predictions": preferencias_predichas,
+            "confidence": {
+                "overall_score": confidence["combined"]["score"],
+                "overall_quality": confidence["combined"]["quality"],
+                "classifier_confidence": confidence["classifier"]["score"],
+                "regressor_confidence": confidence["regressor"]["score"],
+                "reliability": confidence["combined"]["breakdown"]
+            },
+            "raw_predictions": {
+                "css_classes": css_classes,
+                "css_variables": css_variables
+            },
+            "model_info": prediction_result["model_info"]
+        }
+        
+    except Exception as e:
+        print(f"[PREDICT] Error en predicción: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Retornar predicciones por defecto en caso de error
+        return {
+            "success": False,
+            "error": str(e),
+            "predictions": _get_default_preferences(
+                demographic_data.get('edad', 30),
+                demographic_data.get('tipo_cliente', 'persona')
+            ),
+            "confidence": {
+                "overall_score": 50.0,
+                "overall_quality": "low",
+                "classifier_confidence": 50.0,
+                "regressor_confidence": 50.0,
+                "reliability": {
+                    "classification_contribution": 0.5,
+                    "regression_contribution": 0.5,
+                    "overall_certainty": "fallback"
+                }
+            }
+        }
+
+
+# ==================== HELPER FUNCTIONS FOR PREDICTIONS ====================
+
+def _extract_density_preference(css_classes: list) -> str:
+    """Extrae preferencia de densidad de las clases CSS."""
+    for cls in css_classes:
+        if 'densidad-alta' in cls or 'dense' in cls or 'compact' in cls:
+            return 'compacta'
+        elif 'densidad-baja' in cls or 'sparse' in cls or 'spacious' in cls:
+            return 'espaciosa'
+    return 'normal'
+
+
+def _extract_typography_preference(css_classes: list) -> str:
+    """Extrae preferencia de tipografía de las clases CSS."""
+    for cls in css_classes:
+        if 'fuente-serif' in cls or 'serif' in cls:
+            return 'serif'
+        elif 'fuente-mono' in cls or 'mono' in cls:
+            return 'monospace'
+    return 'sans-serif'
+
+
+def _extract_animation_level(css_classes: list, edad: int) -> str:
+    """Extrae nivel de animaciones considerando edad."""
+    # Usuarios más jóvenes tienden a preferir más animaciones
+    if edad < 25:
+        base_level = 'alto'
+    elif edad < 45:
+        base_level = 'medio'
+    else:
+        base_level = 'bajo'
+    
+    # Ajustar basado en clases CSS
+    for cls in css_classes:
+        if 'animacion-alta' in cls or 'motion-high' in cls:
+            return 'alto'
+        elif 'animacion-baja' in cls or 'motion-low' in cls:
+            return 'bajo'
+    
+    return base_level
+
+
+def _extract_color_scheme(css_classes: list) -> str:
+    """Extrae esquema de colores de las clases CSS."""
+    for cls in css_classes:
+        if 'modo-nocturno' in cls or 'dark' in cls:
+            return 'dark'
+        elif 'modo-auto' in cls or 'auto' in cls:
+            return 'auto'
+    return 'light'
+
+
+def _extract_layout_preference(tipo_cliente: str, presupuesto: str) -> str:
+    """Extrae preferencia de layout basada en tipo de cliente."""
+    if tipo_cliente == 'empresa':
+        return 'grid'  # Empresas prefieren ver más info
+    elif presupuesto in ['alto', 'premium']:
+        return 'cards'  # Usuarios premium prefieren cards elegantes
+    return 'list'
+
+
+def _extract_navigation_style(edad: int, tipo_cliente: str) -> str:
+    """Extrae estilo de navegación basado en edad y tipo."""
+    if edad < 30:
+        return 'hamburger'  # Jóvenes familiarizados con mobile
+    elif tipo_cliente == 'empresa':
+        return 'sidebar'  # Empresas prefieren navegación completa
+    return 'top'
+
+
+def _get_default_preferences(edad: int, tipo_cliente: str) -> Dict[str, Any]:
+    """Retorna preferencias por defecto basadas en demografía básica."""
+    return {
+        "densidad_informacion": "normal",
+        "estilo_tipografia": "sans-serif",
+        "nivel_animaciones": "medio" if edad < 45 else "bajo",
+        "esquema_colores": "light",
+        "preferencia_layout": "grid" if tipo_cliente == 'empresa' else "list",
+        "estilo_navegacion": "hamburger" if edad < 30 else "top",
+        "css_variables": {
+            "--font-size-base": "1.000rem",
+            "--spacing-factor": "1.000",
+            "--color-primary-hue": "180",
+            "--border-radius": "0.250rem",
+            "--line-height": "1.400"
+        },
+        "metadata": {
+            "edad_estimada": edad,
+            "tipo_cliente": tipo_cliente,
+            "source": "fallback"
+        }
+    }

@@ -7,9 +7,11 @@
 
 import React, { useEffect, useState, ReactNode } from 'react';
 import { useEphemeralContext, UserContextData } from '@/hooks/useEphemeralContext';
+import { usePersona } from '@/hooks/usePersona';
 import { AdaptiveUIClient } from '@/lib/api-client';
 import { DesignTokens } from '@/types/adaptive-ui';
 import { startBehaviorTracking, stopBehaviorTracking } from '@/lib/analytics/behavior-tracker';
+import { PersonaSimulada } from '@/types/persona';
 
 interface AdaptiveUIProviderProps {
   children: ReactNode;
@@ -19,22 +21,44 @@ interface AdaptiveUIContextType {
   designTokens: DesignTokens | null;
   isLoading: boolean;
   error: string | null;
+  persona: PersonaSimulada | null;
   sendFeedback: (action: string, elementId?: string, elementClass?: string) => void;
+  refreshPersona: () => Promise<void>;
 }
 
 const AdaptiveUIContext = React.createContext<AdaptiveUIContextType | null>(null);
 
 export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
   const ephemeralContext = useEphemeralContext();
+  const { persona, isLoading: personaLoading, error: personaError, refreshPersona } = usePersona();
   const [designTokens, setDesignTokens] = useState<DesignTokens | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [hasFetchedDesign, setHasFetchedDesign] = useState(false);
 
   // Protección contra hydration mismatch
   useEffect(() => {
     setIsMounted(true);
   }, []);
+  
+  // Log persona cuando se carga
+  useEffect(() => {
+    if (persona && isMounted) {
+      console.log('👤 Persona asignada:', {
+        nombre: `${persona.nombre} ${persona.apellido}`,
+        tipo: persona.tipo_cliente,
+        edad: persona.edad,
+        region: persona.region,
+        preferencias: {
+          densidad: persona.densidad_informacion,
+          tipografia: persona.estilo_tipografia,
+          animaciones: persona.nivel_animaciones,
+          layout: persona.preferencia_layout
+        }
+      });
+    }
+  }, [persona, isMounted]);
   
   // Iniciar behavior tracking al montar el componente
   useEffect(() => {
@@ -52,9 +76,30 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
   useEffect(() => {
     /**
      * Ejecutar FASE 2: Decisión Inteligente
-     * Solo cuando el contexto efímero esté disponible Y el componente esté montado
+     * Solo cuando el contexto efímero Y la persona estén disponibles Y el componente esté montado
      */
-    if (!ephemeralContext || !isMounted) return;
+    console.log('🔍 [AdaptiveUI] Estado actual:', {
+      isMounted,
+      hasEphemeralContext: !!ephemeralContext,
+      hasPersona: !!persona,
+      personaLoading,
+      hasFetchedDesign
+    });
+    
+    // Evitar múltiples ejecuciones
+    if (hasFetchedDesign) {
+      return;
+    }
+    
+    if (!ephemeralContext || !isMounted || !persona) {
+      if (isMounted && !ephemeralContext) {
+        console.log('⏳ [AdaptiveUI] Esperando contexto efímero...');
+      }
+      if (isMounted && !persona && !personaLoading) {
+        console.log('⏳ [AdaptiveUI] Esperando persona simulada...');
+      }
+      return;
+    }
 
     const requestAdaptiveDesign = async () => {
       try {
@@ -63,10 +108,21 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
 
         const request = {
           user_context: ephemeralContext,
-          user_temp_id: AdaptiveUIClient.getUserTempId()
+          user_temp_id: AdaptiveUIClient.getUserTempId(),
+          // Incluir datos de la persona simulada para predicciones consistentes
+          persona_data: {
+            edad: persona.edad,
+            region: persona.region,
+            tipo_cliente: persona.tipo_cliente,
+            interes_principal: persona.interes_principal,
+            uso_previsto: persona.uso_previsto,
+            presupuesto: persona.presupuesto,
+            tiene_vehiculo_actual: persona.tiene_vehiculo_actual,
+            tamano_flota: persona.tamano_flota
+          }
         };
 
-        console.log('🎯 Solicitando diseño adaptativo con contexto expandido...', {
+        console.log('🎯 Solicitando diseño adaptativo con contexto expandido + persona simulada...', {
           basic_fields: 9,
           geolocation_fields: 3,
           hardware_fields: 3,
@@ -76,7 +132,8 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
           device_fields: 9,
           storage_fields: 3,
           behavior_fields: 8,
-          total_fields: 45
+          persona_fields: 8,
+          total_fields: 53
         });
 
         const response = await AdaptiveUIClient.requestAdaptiveDesign(request);
@@ -85,6 +142,7 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
         console.log(`⚡ Procesado en ${response.processing_time_ms.toFixed(2)}ms`);
 
         setDesignTokens(response.design_tokens);
+        setHasFetchedDesign(true); // Marcar como ejecutado
 
         // FASE 3: Inyectar tokens inmediatamente
         injectDesignTokens(response.design_tokens);
@@ -94,9 +152,14 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
         console.error('❌ Error en solicitud adaptativa:', errorMessage);
         setError(errorMessage);
 
-        // Fallback: aplicar tokens por defecto
+        // Fallback: Usar preferencias de la persona simulada si están disponibles
         const fallbackTokens: DesignTokens = {
-          css_classes: ['densidad-media', 'fuente-sans'],
+          css_classes: [
+            persona.densidad_informacion ? `densidad-${persona.densidad_informacion}` : 'densidad-media',
+            persona.estilo_tipografia ? `fuente-${persona.estilo_tipografia}` : 'fuente-sans',
+            persona.nivel_animaciones ? `animacion-${persona.nivel_animaciones}` : 'animacion-media',
+            persona.esquema_colores ? `modo-${persona.esquema_colores}` : 'modo-claro'
+          ],
           css_variables: {
             '--font-size-base': '1rem',
             '--spacing-unit': '1rem',
@@ -104,6 +167,7 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
           }
         };
         setDesignTokens(fallbackTokens);
+        setHasFetchedDesign(true); // Marcar como ejecutado incluso en error
         injectDesignTokens(fallbackTokens);
       } finally {
         setIsLoading(false);
@@ -111,7 +175,7 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
     };
 
     requestAdaptiveDesign();
-  }, [ephemeralContext, isMounted]);
+  }, [ephemeralContext, isMounted, persona]);
 
   /**
    * FASE 3: Inyección de tokens de diseño (Zero Flicker)
@@ -165,12 +229,22 @@ export function AdaptiveUIProvider({ children }: AdaptiveUIProviderProps) {
 
     AdaptiveUIClient.sendFeedback(feedback);
   };
+  
+  /**
+   * Wrapper de refreshPersona que resetea el flag de predicción
+   */
+  const refreshPersonaAndDesign = async () => {
+    setHasFetchedDesign(false); // Resetear para permitir nueva predicción
+    await refreshPersona();
+  };
 
   const contextValue: AdaptiveUIContextType = {
     designTokens,
-    isLoading,
-    error,
-    sendFeedback
+    isLoading: isLoading || personaLoading,
+    error: error || personaError,
+    persona,
+    sendFeedback,
+    refreshPersona: refreshPersonaAndDesign
   };
 
   return (

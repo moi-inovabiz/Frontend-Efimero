@@ -15,6 +15,8 @@ import { RegistrationData } from '@/lib/auth-client';
 import Step1BasicData from '@/components/auth/Step1BasicData';
 import Step2Profile from '@/components/auth/Step2Profile';
 import Step3VisualPreferences from '@/components/auth/Step3VisualPreferences';
+import { PersonaDebugPanel } from '@/components/persona/PersonaDebugPanel';
+import { AdaptiveUIProvider } from '@/components/adaptive/AdaptiveUIProvider';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -81,8 +83,12 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black p-4">
-      <div className="w-full max-w-3xl">
+    <AdaptiveUIProvider>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black p-4">
+        {/* Persona Debug Panel */}
+        <PersonaDebugPanel position="top-right" collapsed={true} />
+        
+        <div className="w-full max-w-3xl">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent mb-2">
@@ -186,12 +192,16 @@ export default function RegisterPage() {
         <div className="mt-4 text-center">
           <Link 
             href="/" 
-            className="text-gray-500 hover:text-gray-400 text-sm transition-colors"
+            className="inline-flex items-center gap-2 text-gray-400 hover:text-cyan-400 text-sm transition-colors font-medium"
           >
-            ← Volver al inicio
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Volver al inicio
           </Link>
         </div>
       </div>
     </div>
+    </AdaptiveUIProvider>
   );
 }

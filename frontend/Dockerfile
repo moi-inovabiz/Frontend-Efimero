@@ -14,6 +14,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments for NEXT_PUBLIC_ variables
+ARG NEXT_PUBLIC_GEMINI_API_KEY
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_BACKEND_URL
+
 # Copy package files
 COPY package*.json ./
 
@@ -22,6 +27,11 @@ RUN npm ci
 
 # Copy source code
 COPY . .
+
+# Set environment variables for build
+ENV NEXT_PUBLIC_GEMINI_API_KEY=$NEXT_PUBLIC_GEMINI_API_KEY
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 
 # Build the application
 RUN npm run build

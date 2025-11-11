@@ -46,6 +46,40 @@ function DemoContent() {
           <p className="text-xl text-gray-400 mb-4">
             Esta página se adapta automáticamente según tu Persona Simulada
           </p>
+          
+          {/* NUEVO: Botón Frontend Efímero */}
+          <div className="my-8">
+            <Link 
+              href="/efimero"
+              className="group relative inline-flex items-center gap-3 px-8 py-6 bg-gradient-to-r from-purple-600 via-pink-600 to-red-600 rounded-2xl text-white font-bold text-2xl shadow-2xl hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+            >
+              {/* Efecto de brillo animado */}
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></span>
+              
+              {/* Icono */}
+              <span className="text-4xl animate-pulse">🎨</span>
+              
+              {/* Texto */}
+              <span className="relative z-10">
+                Frontend Efímero Personalizado
+              </span>
+              
+              {/* Badge "NEW" */}
+              <span className="relative z-10 px-3 py-1 bg-yellow-400 text-black text-xs font-black rounded-full uppercase animate-bounce">
+                AI Powered
+              </span>
+              
+              {/* Flecha */}
+              <svg className="relative z-10 w-6 h-6 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </Link>
+            
+            <p className="mt-4 text-sm text-gray-500 max-w-2xl mx-auto">
+              Experimenta con el frontend <span className="text-purple-400 font-semibold">completamente generado por Gemini AI + Canva</span> basado en tu contexto único. Sin afectar el sistema actual.
+            </p>
+          </div>
+          
           <Link 
             href="/" 
             className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors"

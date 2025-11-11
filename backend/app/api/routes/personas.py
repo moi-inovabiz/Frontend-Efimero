@@ -6,9 +6,11 @@ Permite asignar perfiles genéricos a usuarios no autenticados.
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 import uuid
+import random
 
 from app.core.database import get_db
 from app.models.persona_simulada import PersonaSimuladaDB, AsignacionPersonaDB
@@ -16,7 +18,172 @@ from app.models.persona_simulada import PersonaSimuladaDB, AsignacionPersonaDB
 router = APIRouter(prefix="/personas", tags=["personas-simuladas"])
 
 
+# ==================== MODELOS PYDANTIC ====================
+
+class ContextoAsignacion(BaseModel):
+    """Contexto del usuario para matching inteligente de persona."""
+    # Temporal
+    hora_del_dia: Optional[int] = None  # 0-23
+    es_fin_de_semana: Optional[bool] = None
+    
+    # Ubicación
+    ciudad: Optional[str] = None
+    region: Optional[str] = None
+    pais: Optional[str] = None
+    
+    # Dispositivo
+    es_movil: Optional[bool] = None
+    es_tablet: Optional[bool] = None
+    sistema_operativo: Optional[str] = None
+    
+    # Red
+    tipo_conexion: Optional[str] = None  # wifi, 4g, 3g, etc.
+
+
 # ==================== HELPER FUNCTIONS ====================
+
+def calcular_score_persona(persona: PersonaSimuladaDB, contexto: Optional[ContextoAsignacion] = None) -> float:
+    """
+    Calcula un score para determinar qué tan bien matchea una persona con el contexto del usuario.
+    Mayor score = mejor match.
+    
+    Args:
+        persona: Persona simulada a evaluar
+        contexto: Contexto del usuario (opcional, si no hay contexto usa scoring aleatorio)
+    
+    Returns:
+        float: Score de matching (0-100)
+    """
+    if not contexto:
+        # Sin contexto, retornar score puramente aleatorio
+        return random.uniform(0, 100)
+    
+    score = 0.0
+    
+    # ===== REGIÓN (Peso: 25 puntos) =====
+    if contexto.region and persona.region:
+        # Match exacto de región
+        if contexto.region.lower() in persona.region.lower() or persona.region.lower() in contexto.region.lower():
+            score += 25
+        # Match parcial por país
+        elif contexto.pais and "chile" in contexto.pais.lower():
+            score += 10  # Cualquier región chilena tiene bonus
+    
+    # ===== DISPOSITIVO + EDAD (Peso: 20 puntos) =====
+    if persona.edad:
+        if contexto.es_movil:
+            # Móviles prefieren personas jóvenes
+            if persona.edad < 35:
+                score += 20
+            elif persona.edad < 50:
+                score += 10
+        elif contexto.es_tablet:
+            # Tablets para rango medio
+            if 30 <= persona.edad <= 60:
+                score += 20
+            else:
+                score += 10
+        else:
+            # Desktop para todas las edades, bonus para empresas y mayores
+            if persona.tipo_cliente == "empresa":
+                score += 20
+            elif persona.edad >= 40:
+                score += 15
+            else:
+                score += 10
+    
+    # ===== HORARIO + TIPO DE CLIENTE (Peso: 20 puntos) =====
+    if contexto.hora_del_dia is not None:
+        if 9 <= contexto.hora_del_dia <= 18:
+            # Horario laboral: preferir empresas
+            if persona.tipo_cliente == "empresa":
+                score += 20
+            else:
+                score += 8
+        else:
+            # Fuera de horario laboral: preferir personas individuales
+            if persona.tipo_cliente == "persona":
+                score += 20
+            else:
+                score += 8
+    
+    # ===== FIN DE SEMANA (Peso: 10 puntos) =====
+    if contexto.es_fin_de_semana is not None:
+        if contexto.es_fin_de_semana:
+            # Fin de semana: preferir personas individuales
+            if persona.tipo_cliente == "persona":
+                score += 10
+        else:
+            # Entre semana: ligera preferencia por empresas
+            if persona.tipo_cliente == "empresa":
+                score += 10
+            else:
+                score += 5
+    
+    # ===== CONEXIÓN + PREFERENCIAS VISUALES (Peso: 10 puntos) =====
+    if contexto.tipo_conexion:
+        conexion_lenta = contexto.tipo_conexion.lower() in ["3g", "2g", "slow-2g"]
+        
+        if conexion_lenta:
+            # Conexión lenta: preferir animaciones bajas, densidad compacta
+            if persona.nivel_animaciones == "bajo":
+                score += 5
+            if persona.densidad_informacion == "compacta":
+                score += 5
+        else:
+            # Conexión rápida: cualquier configuración está bien
+            score += 5
+    
+    # ===== COMPONENTE ALEATORIO (Peso: 15 puntos) =====
+    # Mantener diversidad y evitar asignaciones 100% predecibles
+    score += random.uniform(0, 15)
+    
+    return score
+
+
+async def obtener_persona_con_matching(
+    db: AsyncSession, 
+    contexto: Optional[ContextoAsignacion] = None
+) -> PersonaSimuladaDB:
+    """
+    Obtiene una persona simulada usando matching inteligente basado en contexto.
+    
+    Args:
+        db: Sesión de base de datos
+        contexto: Contexto del usuario para matching
+    
+    Returns:
+        PersonaSimuladaDB: Persona seleccionada con mejor score
+    """
+    # Obtener todas las personas activas
+    query = select(PersonaSimuladaDB).where(
+        PersonaSimuladaDB.es_activa == True
+    )
+    result = await db.execute(query)
+    personas = result.scalars().all()
+    
+    if not personas:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay personas simuladas disponibles. Ejecutar script de población."
+        )
+    
+    # Calcular scores para cada persona
+    personas_con_score = [
+        (persona, calcular_score_persona(persona, contexto))
+        for persona in personas
+    ]
+    
+    # Ordenar por score (mayor a menor) y seleccionar la mejor
+    personas_con_score.sort(key=lambda x: x[1], reverse=True)
+    
+    mejor_persona, mejor_score = personas_con_score[0]
+    
+    print(f"[MATCHING] Persona seleccionada: {mejor_persona.nombre} {mejor_persona.apellido} "
+          f"(score: {mejor_score:.2f}, tipo: {mejor_persona.tipo_cliente}, edad: {mejor_persona.edad})")
+    
+    return mejor_persona
+
 
 def persona_to_dict(persona: PersonaSimuladaDB) -> Dict[str, Any]:
     """Convierte PersonaSimuladaDB a diccionario."""
@@ -44,33 +211,22 @@ def persona_to_dict(persona: PersonaSimuladaDB) -> Dict[str, Any]:
     }
 
 
-async def obtener_persona_aleatoria(db: AsyncSession) -> PersonaSimuladaDB:
-    """Obtiene una persona simulada aleatoria de la base de datos."""
-    # Query para obtener persona aleatoria
-    query = select(PersonaSimuladaDB).where(
-        PersonaSimuladaDB.es_activa == True
-    ).order_by(func.random()).limit(1)
-    
-    result = await db.execute(query)
-    persona = result.scalar_one_or_none()
-    
-    if not persona:
-        raise HTTPException(
-            status_code=404,
-            detail="No hay personas simuladas disponibles. Ejecutar script de población."
-        )
-    
-    return persona
-
-
 async def obtener_o_crear_asignacion(
     session_id: str,
     db: AsyncSession,
+    contexto: Optional[ContextoAsignacion] = None,
     user_agent: Optional[str] = None,
     ip_address: Optional[str] = None
 ) -> tuple[PersonaSimuladaDB, AsignacionPersonaDB, bool]:
     """
-    Obtiene la asignación existente o crea una nueva.
+    Obtiene la asignación existente o crea una nueva con matching inteligente.
+    
+    Args:
+        session_id: ID de sesión del usuario
+        db: Sesión de base de datos
+        contexto: Contexto del usuario para matching (opcional)
+        user_agent: User agent del navegador
+        ip_address: IP del cliente
     
     Returns:
         tuple: (persona, asignacion, es_nueva)
@@ -99,8 +255,8 @@ async def obtener_o_crear_asignacion(
         return persona, asignacion, False
     
     else:
-        # Crear nueva asignación
-        persona = await obtener_persona_aleatoria(db)
+        # Crear nueva asignación con matching inteligente
+        persona = await obtener_persona_con_matching(db, contexto)
         
         nueva_asignacion = AsignacionPersonaDB(
             session_id=session_id,
@@ -141,24 +297,29 @@ def extraer_session_id(request: Request, x_session_id: Optional[str] = None) -> 
 @router.post("/assign")
 async def asignar_persona(
     request: Request,
+    contexto: Optional[ContextoAsignacion] = None,
     db: AsyncSession = Depends(get_db),
     x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
 ):
     """
-    Asigna una persona simulada a un session_id.
+    Asigna una persona simulada a un session_id usando matching inteligente.
     
     Si el session_id ya tiene una persona asignada, retorna esa misma.
-    Si no, asigna una persona aleatoria y la persiste.
+    Si no, asigna una persona basándose en el contexto del usuario para mejor matching.
     
     Headers opcionales:
         X-Session-ID: ID de sesión del cliente (generado por frontend)
+    
+    Body opcional:
+        contexto: Datos del usuario para matching inteligente (hora, región, dispositivo, etc.)
     
     Returns:
         {
             "persona": {...},
             "session_id": "...",
             "is_new_assignment": bool,
-            "assignment_info": {...}
+            "assignment_info": {...},
+            "matching_score": float (solo si es nueva asignación)
         }
     """
     try:
@@ -169,15 +330,22 @@ async def asignar_persona(
         user_agent = request.headers.get("user-agent")
         ip_address = request.client.host if request.client else None
         
-        # Obtener o crear asignación
+        # Log del contexto recibido
+        if contexto:
+            print(f"[MATCHING] Contexto recibido: hora={contexto.hora_del_dia}, "
+                  f"región={contexto.region}, móvil={contexto.es_movil}, "
+                  f"fin_semana={contexto.es_fin_de_semana}")
+        
+        # Obtener o crear asignación con matching inteligente
         persona, asignacion, es_nueva = await obtener_o_crear_asignacion(
             session_id=session_id,
             db=db,
+            contexto=contexto,
             user_agent=user_agent,
             ip_address=ip_address
         )
         
-        return {
+        response = {
             "success": True,
             "persona": persona_to_dict(persona),
             "session_id": session_id,
@@ -187,8 +355,29 @@ async def asignar_persona(
                 "last_seen_at": asignacion.last_seen_at.isoformat(),
                 "page_views": asignacion.page_views
             },
-            "message": "Nueva persona asignada" if es_nueva else "Persona existente recuperada"
+            "message": "Nueva persona asignada con matching inteligente" if es_nueva else "Persona existente recuperada"
         }
+        
+        # Si es nueva asignación, incluir el score de matching
+        if es_nueva and contexto:
+            score = calcular_score_persona(persona, contexto)
+            response["matching_score"] = round(score, 2)
+            response["matching_info"] = {
+                "used_context": True,
+                "context_fields": {
+                    "hora": contexto.hora_del_dia,
+                    "region": contexto.region,
+                    "dispositivo": "móvil" if contexto.es_movil else "tablet" if contexto.es_tablet else "desktop",
+                    "fin_semana": contexto.es_fin_de_semana
+                }
+            }
+        elif es_nueva:
+            response["matching_info"] = {
+                "used_context": False,
+                "note": "Asignación aleatoria (sin contexto)"
+            }
+        
+        return response
         
     except HTTPException:
         raise
@@ -268,6 +457,107 @@ async def obtener_mi_persona(
         raise HTTPException(
             status_code=500,
             detail=f"Error interno al obtener persona: {str(e)}"
+        )
+
+
+@router.post("/assign/{persona_id}")
+async def asignar_persona_especifica(
+    persona_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
+):
+    """
+    Asigna una persona simulada específica a un session_id.
+    Útil para demos y testing de diferentes perfiles.
+    
+    Args:
+        persona_id: ID de la persona a asignar
+        
+    Headers opcionales:
+        X-Session-ID: ID de sesión del cliente
+    
+    Returns:
+        {
+            "persona": {...},
+            "session_id": "...",
+            "is_new_assignment": bool,
+            "assignment_info": {...}
+        }
+    """
+    try:
+        # Extraer o generar session_id
+        session_id = extraer_session_id(request, x_session_id)
+        
+        # Buscar la persona específica
+        query = select(PersonaSimuladaDB).where(
+            PersonaSimuladaDB.id == persona_id,
+            PersonaSimuladaDB.es_activa == True
+        )
+        result = await db.execute(query)
+        persona = result.scalar_one_or_none()
+        
+        if not persona:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Persona con ID {persona_id} no encontrada"
+            )
+        
+        # Obtener info del cliente
+        user_agent = request.headers.get("user-agent")
+        ip_address = request.client.host if request.client else None
+        
+        # Verificar si ya existe asignación para este session_id
+        query_asignacion = select(AsignacionPersonaDB).where(
+            AsignacionPersonaDB.session_id == session_id
+        )
+        result_asignacion = await db.execute(query_asignacion)
+        asignacion_existente = result_asignacion.scalar_one_or_none()
+        
+        es_nueva = False
+        
+        if asignacion_existente:
+            # Actualizar asignación existente con la nueva persona
+            asignacion_existente.persona_id = persona_id
+            asignacion_existente.last_seen_at = datetime.utcnow()
+            asignacion_existente.page_views += 1
+            asignacion = asignacion_existente
+            print(f"[MANUAL] Asignación actualizada: {session_id} → {persona.nombre} {persona.apellido}")
+        else:
+            # Crear nueva asignación
+            asignacion = AsignacionPersonaDB(
+                session_id=session_id,
+                persona_id=persona_id,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+            db.add(asignacion)
+            es_nueva = True
+            print(f"[MANUAL] Nueva asignación: {session_id} → {persona.nombre} {persona.apellido}")
+        
+        await db.commit()
+        await db.refresh(asignacion)
+        
+        return {
+            "success": True,
+            "persona": persona_to_dict(persona),
+            "session_id": session_id,
+            "is_new_assignment": es_nueva,
+            "assignment_info": {
+                "assigned_at": asignacion.assigned_at.isoformat(),
+                "last_seen_at": asignacion.last_seen_at.isoformat(),
+                "page_views": asignacion.page_views
+            },
+            "message": "Persona asignada manualmente"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Error asignando persona específica: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno al asignar persona: {str(e)}"
         )
 
 

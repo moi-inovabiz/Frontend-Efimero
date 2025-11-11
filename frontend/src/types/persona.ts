@@ -38,6 +38,17 @@ export interface PersonaAssignmentResponse {
   is_new_assignment: boolean;
   assignment_info: AssignmentInfo;
   message?: string;
+  matching_score?: number; // Score del matching inteligente (0-100)
+  matching_info?: {
+    used_context: boolean;
+    context_fields?: {
+      hora: number;
+      region: string;
+      dispositivo: string;
+      fin_semana: boolean;
+    };
+    note?: string;
+  };
 }
 
 export interface PersonaMeResponse {

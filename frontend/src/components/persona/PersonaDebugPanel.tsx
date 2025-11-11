@@ -1,12 +1,14 @@
 /**
  * Componente para mostrar información de la Persona Simulada asignada
  * Útil para debugging y demostración
+ * Ahora con matching inteligente basado en contexto
  */
 
 'use client';
 
 import React from 'react';
 import { usePersona } from '@/hooks/usePersona';
+import { useEphemeralContext } from '@/hooks/useEphemeralContext';
 
 interface PersonaDebugPanelProps {
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -17,8 +19,13 @@ export function PersonaDebugPanel({
   position = 'bottom-right',
   collapsed = false
 }: PersonaDebugPanelProps) {
-  const { persona, isLoading, error, refreshPersona } = usePersona();
+  const context = useEphemeralContext();
+  const { persona, isLoading, error, refreshPersonaWithContext } = usePersona(context);
   const [isOpen, setIsOpen] = React.useState(!collapsed);
+
+  const handleRefresh = React.useCallback(async () => {
+    await refreshPersonaWithContext(context);
+  }, [refreshPersonaWithContext, context]);
 
   if (isLoading) {
     return (
@@ -62,9 +69,9 @@ export function PersonaDebugPanel({
               Persona Simulada
             </h3>
             <button
-              onClick={refreshPersona}
+              onClick={handleRefresh}
               className="text-cyan-400 hover:text-cyan-300 transition-colors"
-              title="Cambiar persona"
+              title="Cambiar persona con matching inteligente"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

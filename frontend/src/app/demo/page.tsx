@@ -1,16 +1,19 @@
 /**
  * Demo Page - Personalización Adaptativa
  * Muestra elementos UI que se adaptan según la persona simulada
+ * Ahora con adaptaciones dinámicas visuales y selector de perfiles
  */
 
 'use client';
 
 import { AdaptiveUIProvider, useAdaptiveUI } from '@/components/adaptive/AdaptiveUIProvider';
+import { AdaptiveShowcase } from '@/components/adaptive/AdaptiveShowcase';
 import { PersonaDebugPanel } from '@/components/persona/PersonaDebugPanel';
+import { PersonaSelector } from '@/components/persona/PersonaSelector';
 import Link from 'next/link';
 
 function DemoContent() {
-  const { designTokens, persona, isLoading } = useAdaptiveUI();
+  const { designTokens, persona, isLoading, assignSpecificPersona } = useAdaptiveUI();
 
   if (isLoading || !persona) {
     return (
@@ -27,6 +30,12 @@ function DemoContent() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-8">
       {/* Persona Debug Panel */}
       <PersonaDebugPanel position="top-right" collapsed={false} />
+      
+      {/* Selector de Personas */}
+      <PersonaSelector
+        onPersonaChange={assignSpecificPersona}
+        currentPersonaId={persona.id}
+      />
       
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -47,6 +56,14 @@ function DemoContent() {
             Volver al inicio
           </Link>
         </div>
+
+        {/* Nuevo componente de Adaptaciones Dinámicas */}
+        <div className="mb-12">
+          <AdaptiveShowcase />
+        </div>
+
+        {/* Separador */}
+        <div className="my-12 border-t border-gray-700"></div>
 
         {/* Tokens aplicados */}
         <div className="mb-8 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-xl p-6">

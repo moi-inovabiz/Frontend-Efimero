@@ -3,6 +3,15 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  
+  /* Variables adaptativas por defecto */
+  --adaptive-font-size-base: 16px;
+  --adaptive-primary-color: #06B6D4;
+  --adaptive-bg-color: #ffffff;
+  --adaptive-text-color: #111827;
+  --adaptive-animation-duration: 0.3s;
+  --adaptive-spacing-unit: 1rem;
+  --adaptive-border-radius: 0.5rem;
 }
 
 @theme inline {
@@ -23,4 +32,69 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--adaptive-font-size-base);
+  transition: font-size var(--adaptive-animation-duration) ease;
+}
+
+/* Estilos adaptativos globales */
+.adaptive-button {
+  background-color: var(--adaptive-primary-color);
+  border-radius: var(--adaptive-border-radius);
+  padding: var(--adaptive-spacing-unit);
+  transition: all var(--adaptive-animation-duration) ease;
+}
+
+.adaptive-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.adaptive-card {
+  border-radius: var(--adaptive-border-radius);
+  padding: var(--adaptive-spacing-unit);
+  transition: all var(--adaptive-animation-duration) ease;
+}
+
+.adaptive-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Adaptaciones por densidad de información */
+.densidad-compacta {
+  --adaptive-spacing-unit: 0.75rem;
+}
+
+.densidad-comoda {
+  --adaptive-spacing-unit: 1rem;
+}
+
+.densidad-amplia {
+  --adaptive-spacing-unit: 1.5rem;
+}
+
+/* Adaptaciones por nivel de animaciones */
+.animacion-bajo {
+  --adaptive-animation-duration: 0.1s;
+}
+
+.animacion-medio {
+  --adaptive-animation-duration: 0.3s;
+}
+
+.animacion-alto {
+  --adaptive-animation-duration: 0.5s;
+}
+
+/* Adaptaciones por preferencia de layout */
+.layout-minimalista {
+  --adaptive-border-radius: 0.25rem;
+}
+
+.layout-cards {
+  --adaptive-border-radius: 0.75rem;
+}
+
+.layout-grid {
+  --adaptive-border-radius: 0.5rem;
 }

@@ -23,7 +23,13 @@ interface VisualPreferences {
   color_favorito?: string;
   densidad_informacion?: string;
   estilo_tipografia?: string;
+  estilo_imagenes?: string;
   nivel_animaciones?: string;
+  preferencia_layout?: string;
+  estilo_navegacion?: string;
+  preferencia_visual?: string;
+  modo_comparacion?: string;
+  idioma_specs?: string;
   prioriza_precio?: boolean;
   prioriza_tecnologia?: boolean;
   prioriza_consumo?: boolean;
@@ -55,30 +61,48 @@ interface GeneratedUI {
     model: string;
     generated_at: string;
     layout_type: string;
+    persona_id?: string; // ID de la persona para la que se generó
   };
 }
 
-const SESSION_STORAGE_KEY = 'efimero_ui_cache_v1';
+const SESSION_STORAGE_KEY_PREFIX = 'efimero_ui_cache_v2_'; // v2 para invalidar cache antiguo
+
+/**
+ * Genera la clave de cache específica para una persona
+ */
+function getCacheKey(personaId?: string): string {
+  return `${SESSION_STORAGE_KEY_PREFIX}${personaId || 'default'}`;
+}
 
 export function useGeminiUI() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiKeyError, setApiKeyError] = useState(false); // Nueva bandera para API key inválida
-  const [generatedUI, setGeneratedUI] = useState<GeneratedUI | null>(() => {
+  const [generatedUI, setGeneratedUI] = useState<GeneratedUI | null>(null);
+  const [currentPersonaId, setCurrentPersonaId] = useState<string | null>(null);
+
+  /**
+   * Carga el cache SOLO si es para la misma persona
+   */
+  const loadCachedUI = useCallback((personaId?: string): GeneratedUI | null => {
     if (typeof window === 'undefined') {
       return null;
     }
 
     try {
-      const cached = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      const cacheKey = getCacheKey(personaId);
+      const cached = window.sessionStorage.getItem(cacheKey);
+      
       if (!cached) {
+        console.log('[useGeminiUI] No cache found for persona:', personaId || 'default');
         return null;
       }
 
       const parsed = JSON.parse(cached) as GeneratedUI;
+      
       // Validar que sea un objeto con HTML antes de usarlo
       if (parsed && typeof parsed.html === 'string') {
-        console.log('[useGeminiUI] Loaded cached UI from sessionStorage');
+        console.log('[useGeminiUI] ✅ Loaded cached UI for persona:', personaId || 'default');
         return parsed;
       }
     } catch (cacheError) {
@@ -86,7 +110,7 @@ export function useGeminiUI() {
     }
 
     return null;
-  });
+  }, []);
 
   const buildPrompt = useCallback((params: GenerateUIParams): string => {
     const { user, preferences, context, persona } = params;
@@ -103,12 +127,20 @@ Tu tarea es generar un diseño HTML completo usando Tailwind CSS para una landin
 - Intereses: ${user?.interes_principal?.join(', ') || 'vehículos de lujo'}
 - Presupuesto: ${user?.presupuesto || 'medio'}
 
-**PREFERENCIAS VISUALES:**
-- Esquema de colores: ${preferences?.esquema_colores || 'automatico'}
-- Color favorito: ${preferences?.color_favorito || 'azul'}
-- Densidad de información: ${preferences?.densidad_informacion || 'comoda'}
-- Estilo tipográfico: ${preferences?.estilo_tipografia || 'moderna_geometrica'}
-- Nivel de animaciones: ${preferences?.nivel_animaciones || 'moderadas'}
+**PREFERENCIAS VISUALES (11 campos - RESPETAR TODOS):**
+1. Esquema de colores: ${preferences?.esquema_colores || 'moderno'}
+2. Color favorito: ${preferences?.color_favorito || '#0EA5E9'}
+3. Densidad de información: ${preferences?.densidad_informacion || 'comoda'}
+4. Estilo tipográfico: ${preferences?.estilo_tipografia || 'moderna_geometrica'}
+5. Estilo de imágenes: ${preferences?.estilo_imagenes || 'fotograficas'}
+6. Nivel de animaciones: ${preferences?.nivel_animaciones || 'medio'}
+7. Preferencia de layout: ${preferences?.preferencia_layout || 'cards'}
+8. Estilo de navegación: ${preferences?.estilo_navegacion || 'horizontal'}
+9. Preferencia visual: ${preferences?.preferencia_visual || 'equilibrada'}
+10. Modo comparación: ${preferences?.modo_comparacion || 'lado_a_lado'}
+11. Idioma de specs: ${preferences?.idioma_specs || 'tecnico'}
+
+**PRIORIDADES:**
 - Prioriza precio: ${preferences?.prioriza_precio ? 'SÍ' : 'NO'}
 - Prioriza tecnología: ${preferences?.prioriza_tecnologia ? 'SÍ' : 'NO'}
 - Prioriza consumo: ${preferences?.prioriza_consumo ? 'SÍ' : 'NO'}
@@ -133,47 +165,125 @@ ${persona ? `**PERSONA SIMULADA:**
      * Call-to-action footer
 
 2. **Personalización según perfil:**
-   - Si tipo_cliente es "empresa": enfoca en flotas, TCO, vehículos comerciales (Sprinter, Vito)
-   - Si tipo_cliente es "persona": enfoca en lujo, tecnología, vehículos premium (EQS, S-Class, GLE)
+   - Si tipo_cliente es "empresa": enfoca en flotas, TCO, vehículos comerciales (Sprinter, Vito, eVito)
+   - Si tipo_cliente es "persona": enfoca en lujo, tecnología, vehículos premium (EQS, S-Class, GLE, AMG)
 
-3. **Adaptación visual:**
-   - Si densidad es "minimalista": usa spacing amplio (p-12, gap-8), texto grande
-   - Si densidad es "compacta": usa spacing reducido (p-6, gap-4), texto normal
-   - Si densidad es "maxima": usa spacing mínimo (p-4, gap-2), texto pequeño
+3. **Adaptación de DENSIDAD DE INFORMACIÓN:**
+   - Si densidad es "minimalista": espaciado amplio (p-12, gap-8, my-8), texto muy grande (text-xl, text-2xl), máximo 1 vehículo, mucho espacio en blanco
+   - Si densidad es "comoda": espaciado moderado (p-6, gap-6, my-6), texto mediano (text-base, text-lg), 2-3 vehículos
+   - Si densidad es "compacta": espaciado reducido (p-4, gap-4, my-4), texto normal (text-sm, text-base), 3-4 vehículos, cards más pequeñas
+   - Si densidad es "amplia": espaciado generoso (p-8, gap-8, my-8), texto grande (text-lg, text-xl), 2 vehículos máximo
 
-4. **Color scheme:**
-   - Si esquema es "oscuro": bg-gradient-to-br from-gray-900 via-black
-   - Si esquema es "claro": bg-gradient-to-br from-gray-50 via-white
-   - Si esquema es "lujo": bg-gradient-to-br from-purple-900 via-gray-900 to-black
-   - Si esquema es "corporativo": bg-gradient-to-br from-blue-900 via-blue-800 to-black
+4. **Color scheme (esquema_colores) - CRÍTICO PARA ESTILOS:**
+   **IMPORTANTE:** Para colores de fondo principales, USA ESTILOS INLINE para garantizar que se vean:
+   
+   - Si esquema es "oscuro": 
+     * Container principal: style="background: linear-gradient(to bottom right, #111827, #000000, #111827);"
+     * Texto: class="text-white"
+   
+   - Si esquema es "claro": 
+     * Container principal: style="background: linear-gradient(to bottom right, #f9fafb, #ffffff, #f3f4f6);"
+     * Texto: class="text-gray-900"
+   
+   - Si esquema es "lujo": 
+     * Container principal: style="background: linear-gradient(to bottom right, #581c87, #1f2937, #000000);"
+     * Acentos: style="color: #fbbf24;" (dorado)
+   
+   - Si esquema es "corporativo": 
+     * Container principal: style="background: linear-gradient(to bottom right, #1e3a8a, #1e40af, #000000);"
+     * Acentos: class="text-blue-400"
+   
+   - Si esquema es "moderno": 
+     * Container principal: style="background: linear-gradient(to bottom right, #1f2937, #111827, #000000);"
+     * Acentos: class="text-cyan-400"
+   
+   **Color favorito (${preferences?.color_favorito}):**
+   - Usa SIEMPRE este color para botones principales con style="background-color: ${preferences?.color_favorito};"
+   - Usa este color para borders importantes: style="border-color: ${preferences?.color_favorito};"
+   - Usa este color para títulos destacados: style="color: ${preferences?.color_favorito};"
 
-5. **Destacar según prioridades:**
-   - Si prioriza_tecnologia: destacar specs técnicas, MBUX, autonomía eléctrica
-   - Si prioriza_precio: destacar precio, financiamiento, ofertas
-   - Si prioriza_consumo: destacar eficiencia, consumo, TCO
+5. **Estilo TIPOGRÁFICO (estilo_tipografia):**
+   - Si es "moderna_geometrica": usa font-sans, font-bold, tracking-tight, letras limpias
+   - Si es "clasica_serif": usa font-serif, font-normal, tracking-normal, elegancia tradicional
+   - Si es "sans-serif": usa font-sans, font-medium, tracking-normal, claridad
 
-6. **Responsive design:**
-   - Usa clases responsive de Tailwind (md:, lg:)
-   - Grid debe ser: grid-cols-1 md:grid-cols-3
+6. **Nivel de ANIMACIONES (nivel_animaciones) - MUY IMPORTANTE:**
+   - Si nivel es "bajo" o "minimo": NO uses transition, NO uses animate-*, elementos estáticos
+   - Si nivel es "medio" o "moderado": usa transition-all duration-300, hover:scale-105 moderado
+   - Si nivel es "alto" o "maximo": usa transition-all duration-150, animate-pulse, animate-bounce, hover:scale-110, efectos fluidos
 
-7. **NO incluyas:**
-   - Etiquetas <html>, <head>, <body>
-   - Scripts de JavaScript
-   - **Imágenes externas** (usa emojis, gradients de Tailwind o data URIs)
-   - Enlaces a servicios de placeholder (via.placeholder.com, lorempixel, etc.)
-   - Explicaciones o comentarios fuera del HTML
+7. **Preferencia de LAYOUT (preferencia_layout):**
+   - Si es "grid": usa grid grid-cols-1 md:grid-cols-3, distribución cuadrícula
+   - Si es "lista": usa flex flex-col gap-4, diseño vertical lineal
+   - Si es "cards": usa grid con cards elevadas (shadow-xl, rounded-xl, border)
+   - Si es "minimalista": usa flex con mucho espacio, borders sutiles
 
-8. **Para imágenes de vehículos:**
-   - Usa emojis de vehículos: 🚗 🚙 🚐 ⚡ 🏎️
-   - O usa gradients de Tailwind con texto: bg-gradient-to-br from-blue-600 to-purple-600
-   - O usa íconos SVG inline simples
-   - NUNCA uses URLs externas de imágenes
+8. **Estilo de NAVEGACIÓN (estilo_navegacion):**
+   - Si es "horizontal": barra nav en top con flex flex-row
+   - Si es "vertical": sidebar con flex flex-col
+   - Si es "hamburger": menú oculto para móvil
+   - Si es "tabs": pestañas horizontales con border-b
+
+9. **Preferencia VISUAL (preferencia_visual):**
+   - Si es "minimalista": máximo espacio en blanco, colores neutros, sin bordes
+   - Si es "maximalista": colores vibrantes, muchos elementos, borders gruesos
+   - Si es "equilibrada": balance entre elementos y espacio
+
+10. **Modo COMPARACIÓN (modo_comparacion):**
+    - Si es "lado_a_lado": grid de vehículos con md:grid-cols-2 o md:grid-cols-3
+    - Si es "tabla": estructura de tabla con borders
+    - Si es "lista": stack vertical con separadores
+
+11. **Idioma de SPECS (idioma_specs):**
+    - Si es "tecnico": usa términos como "kW", "Nm", "0-100 km/h", "WLTP"
+    - Si es "simple": usa "Potencia", "Velocidad", "Consumo" sin tecnicismos
+    - Si es "casual": usa lenguaje natural "Rápido", "Eficiente", "Potente"
+
+12. **Destacar según prioridades:**
+    - Si prioriza_tecnologia: destacar specs técnicas, MBUX, autonomía eléctrica, sistemas de asistencia
+    - Si prioriza_precio: destacar precio grande, financiamiento, ofertas, descuentos
+    - Si prioriza_consumo: destacar eficiencia, consumo, TCO, eléctricos (EQS, EQE, eVito)
+
+13. **Responsive design:**
+    - Usa clases responsive de Tailwind (md:, lg:)
+    - Grid debe adaptarse: grid-cols-1 md:grid-cols-2 lg:grid-cols-3
+
+14. **NO incluyas:**
+    - Etiquetas <html>, <head>, <body>
+    - Scripts de JavaScript
+    - **Imágenes externas** (usa emojis, gradients de Tailwind o data URIs)
+    - Enlaces a servicios de placeholder (via.placeholder.com, lorempixel, etc.)
+    - Explicaciones o comentarios fuera del HTML
+
+15. **Para imágenes de vehículos:**
+    - Usa emojis relevantes: 🚗 🚙 🚐 ⚡ 🏎️ 🔋 (eléctricos con ⚡)
+    - O usa gradients con style inline: style="background: linear-gradient(to bottom right, #2563eb, #7c3aed);"
+    - O usa SVG inline simples
+    - NUNCA uses URLs externas de imágenes
+
+**REGLAS CRÍTICAS PARA COLORES:**
+1. El div contenedor principal DEBE tener style inline para el fondo basado en esquema_colores
+2. Los botones principales DEBEN usar style="background-color: ${preferences?.color_favorito};"
+3. Los títulos importantes DEBEN usar style="color: ${preferences?.color_favorito};"
+4. Combina clases Tailwind (para spacing, typography) CON estilos inline (para colores)
+
+**EJEMPLO DE ESTRUCTURA CORRECTA:**
+\`\`\`html
+<div style="background: linear-gradient(to bottom right, #1e3a8a, #1e40af, #000000); min-height: 100vh;" class="p-8">
+  <h1 style="color: ${preferences?.color_favorito};" class="text-5xl font-bold mb-6">
+    Título personalizado
+  </h1>
+  <button style="background-color: ${preferences?.color_favorito};" class="px-6 py-3 text-white rounded-lg">
+    Acción principal
+  </button>
+</div>
+\`\`\`
 
 **FORMATO DE RESPUESTA:**
 Retorna ÚNICAMENTE el HTML del contenido (div principal con todo el diseño).
 No uses markdown code blocks.
 No incluyas explicaciones.
-Solo el HTML puro con clases Tailwind.
+Solo el HTML puro que combine clases Tailwind Y estilos inline para colores.
 
 Genera el HTML ahora:
 `;
@@ -297,6 +407,43 @@ Genera el HTML ahora:
     console.log('[useGeminiUI] API Key available:', !!GEMINI_API_KEY);
     console.log('[useGeminiUI] API URL:', GEMINI_API_URL);
     
+    // Generar ID único para cache basado en persona o usuario
+    const personaId = params.persona?.nombre 
+      ? `${params.persona.nombre}_${params.persona.edad}`
+      : params.user?.tipo_cliente 
+        ? `${params.user.tipo_cliente}_${params.user.edad || 'unknown'}`
+        : 'default';
+    
+    console.log('[useGeminiUI] 👤 Persona ID for cache:', personaId);
+    console.log('[useGeminiUI] 📋 Params received:', {
+      hasPersona: !!params.persona,
+      personaName: params.persona?.nombre,
+      hasUser: !!params.user,
+      userType: params.user?.tipo_cliente
+    });
+    
+    // Detectar si cambió la persona
+    const personaChanged = personaId !== currentPersonaId;
+    
+    if (personaChanged) {
+      console.log('[useGeminiUI] 🔄 Persona changed from', currentPersonaId, 'to', personaId);
+      setCurrentPersonaId(personaId || null);
+      setGeneratedUI(null); // Limpiar UI anterior
+      
+      // NO buscar cache si cambió la persona - forzar nueva generación
+      console.log('[useGeminiUI] 🚫 Skipping cache lookup - persona changed');
+    } else {
+      // Solo buscar cache si NO cambió la persona
+      const cachedUI = loadCachedUI(personaId);
+      if (cachedUI) {
+        console.log('[useGeminiUI] ✅ Using cached UI for same persona:', personaId);
+        setGeneratedUI(cachedUI);
+        return cachedUI;
+      } else {
+        console.log('[useGeminiUI] 📭 No cache found for persona:', personaId);
+      }
+    }
+    
     if (!GEMINI_API_KEY) {
       const errorMsg = 'Gemini API key no configurada';
       console.error('[useGeminiUI]', errorMsg);
@@ -358,9 +505,11 @@ Genera el HTML ahora:
         if (response.status === 429) {
           console.warn('[useGeminiUI] Rate limit reached, using fallback UI');
           const fallback = generateFallbackUI(params);
+          fallback.metadata.persona_id = personaId;
           setGeneratedUI(fallback);
           if (typeof window !== 'undefined') {
-            window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(fallback));
+            const cacheKey = getCacheKey(personaId);
+            window.sessionStorage.setItem(cacheKey, JSON.stringify(fallback));
           }
           return fallback;
         }
@@ -435,16 +584,19 @@ Genera el HTML ahora:
       const result: GeneratedUI = {
         html: cleanedHTML,
         metadata: {
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.0-flash',
           generated_at: new Date().toISOString(),
-          layout_type: layoutType
+          layout_type: layoutType,
+          persona_id: personaId
         }
       };
 
-      console.log('[useGeminiUI] ✅ UI generated successfully, layout:', layoutType);
+      console.log('[useGeminiUI] ✅ UI generated successfully, layout:', layoutType, 'persona:', personaId);
       setGeneratedUI(result);
       if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result));
+        const cacheKey = getCacheKey(personaId);
+        window.sessionStorage.setItem(cacheKey, JSON.stringify(result));
+        console.log('[useGeminiUI] 💾 Cached UI with key:', cacheKey);
       }
       return result;
 
@@ -457,7 +609,7 @@ Genera el HTML ahora:
       setLoading(false);
       console.log('[useGeminiUI] Generation finished');
     }
-  }, [buildPrompt, generateFallbackUI]);
+  }, [buildPrompt, generateFallbackUI, loadCachedUI, currentPersonaId]);
 
   return {
     generateUI,

@@ -35,6 +35,7 @@ export default function EfimeroPage() {
   const hasGeneratedRef = useRef(false);
   const hasNavigatedRef = useRef(false);
   const hasErroredRef = useRef(false); // Nueva ref para evitar loops en errores
+  const lastPersonaIdRef = useRef<string | null>(null); // Tracking de cambios de persona
 
   const handleRetry = () => {
     console.log('[Efimero] Manual retry triggered');
@@ -45,6 +46,26 @@ export default function EfimeroPage() {
     setRenderError(null);
     setRetryCount(prev => prev + 1);
   };
+
+  // Efecto para detectar cambios de persona y resetear generación
+  useEffect(() => {
+    const currentPersonaId = personaData?.persona?.id || null;
+    
+    if (currentPersonaId !== lastPersonaIdRef.current) {
+      console.log('[Efimero] 👤 Persona changed!');
+      console.log('[Efimero] Previous:', lastPersonaIdRef.current);
+      console.log('[Efimero] Current:', currentPersonaId);
+      console.log('[Efimero] 🔄 Resetting generation flags to regenerate UI...');
+      
+      // Resetear todas las flags para forzar nueva generación
+      hasGeneratedRef.current = false;
+      isGeneratingRef.current = false;
+      hasErroredRef.current = false;
+      
+      // Actualizar la referencia
+      lastPersonaIdRef.current = currentPersonaId;
+    }
+  }, [personaData?.persona?.id]);
 
   useEffect(() => {
     // Si hay error de API key, no intentar de nuevo (evitar loop)
@@ -98,39 +119,104 @@ export default function EfimeroPage() {
         console.log('[Efimero] 🔄 Starting generation...');
         console.log('[Efimero] Building params for Gemini...');
 
+        /**
+         * FLUJO DE DATOS: Demo Adaptativa → Frontend Efímero
+         * 
+         * 1. El usuario selecciona un perfil en /demo usando <PersonaSelector>
+         * 2. PersonaSelector llama assignSpecificPersona(personaId) del hook usePersona
+         * 3. usePersona obtiene la Persona completa del backend (/personas/assign/:id)
+         * 4. La Persona incluye TODOS los campos de preferencias visuales:
+         *    - esquema_colores, color_favorito, densidad_informacion
+         *    - estilo_tipografia, estilo_imagenes, nivel_animaciones
+         *    - preferencia_layout, estilo_navegacion, preferencia_visual
+         *    - modo_comparacion, idioma_specs
+         * 5. Cuando se navega a /efimero, este componente:
+         *    - Lee la Persona activa via usePersona (personaData)
+         *    - Extrae TODAS las preferencias visuales de la Persona
+         *    - Las envía a Gemini via buildPrompt()
+         * 6. Gemini genera HTML personalizado respetando estas preferencias
+         * 7. El usuario puede volver a /demo, cambiar de perfil, y ver diferencias
+         * 
+         * PRIORIDAD: Persona > User autenticado > Defaults
+         * Si hay Persona seleccionada, usar sus preferencias (más específicas)
+         * Si no, usar preferencias del User autenticado (perfil general)
+         * Si no, usar defaults
+         */
+
+        // Priorizar datos de Persona sobre User (Persona es más específica y actualizada)
+        const sourcePersona = personaData?.persona;
+        const sourceUser = user;
+
         const params = {
-          user: user ? {
-            tipo_cliente: user.tipo_cliente,
-            edad: undefined,
-            region: undefined,
-            interes_principal: [],
-            presupuesto: undefined
-          } : undefined,
-          preferences: user ? {
-            esquema_colores: user.esquema_colores,
-            color_favorito: user.color_favorito,
-            densidad_informacion: user.densidad_informacion,
-            estilo_tipografia: user.estilo_tipografia,
-            estilo_imagenes: user.estilo_imagenes,
-            nivel_animaciones: user.nivel_animaciones,
-            preferencia_layout: user.preferencia_layout,
-            estilo_navegacion: user.estilo_navegacion,
-            preferencia_visual: user.preferencia_visual,
-            modo_comparacion: user.modo_comparacion,
-            idioma_specs: user.idioma_specs
-          } : undefined,
+          // Datos demográficos: priorizar Persona > User
+          user: {
+            tipo_cliente: sourcePersona?.tipo_cliente || sourceUser?.tipo_cliente || 'general',
+            edad: sourcePersona?.edad || undefined,
+            region: sourcePersona?.region || sourceUser?.region || 'Metropolitana',
+            interes_principal: (() => {
+              const personaIntereses = sourcePersona?.interes_principal;
+              const userIntereses = sourceUser?.interes_principal;
+              
+              if (personaIntereses) {
+                return typeof personaIntereses === 'string' ? [personaIntereses] : personaIntereses;
+              }
+              return userIntereses || [];
+            })(),
+            presupuesto: sourcePersona?.presupuesto || sourceUser?.presupuesto || 'medio'
+          },
+          
+          // Preferencias visuales: usar TODOS los campos de la Persona (11 campos completos)
+          preferences: {
+            esquema_colores: sourcePersona?.esquema_colores || sourceUser?.esquema_colores || 'moderno',
+            color_favorito: sourcePersona?.color_favorito || sourceUser?.color_favorito || '#0EA5E9',
+            densidad_informacion: sourcePersona?.densidad_informacion || sourceUser?.densidad_informacion || 'comoda',
+            estilo_tipografia: sourcePersona?.estilo_tipografia || sourceUser?.estilo_tipografia || 'moderna_geometrica',
+            estilo_imagenes: sourcePersona?.estilo_imagenes || sourceUser?.estilo_imagenes || 'fotograficas',
+            nivel_animaciones: sourcePersona?.nivel_animaciones || sourceUser?.nivel_animaciones || 'medio',
+            preferencia_layout: sourcePersona?.preferencia_layout || sourceUser?.preferencia_layout || 'cards',
+            estilo_navegacion: sourcePersona?.estilo_navegacion || sourceUser?.estilo_navegacion || 'horizontal',
+            preferencia_visual: sourcePersona?.preferencia_visual || sourceUser?.preferencia_visual || 'equilibrada',
+            modo_comparacion: sourcePersona?.modo_comparacion || sourceUser?.modo_comparacion || 'lado_a_lado',
+            idioma_specs: sourcePersona?.idioma_specs || sourceUser?.idioma_specs || 'tecnico',
+            
+            // Prioridades (booleanos) - Solo PersonaSimulada tiene estos campos
+            prioriza_precio: sourcePersona?.prioriza_precio || false,
+            prioriza_tecnologia: sourcePersona?.prioriza_tecnologia || false,
+            prioriza_consumo: sourcePersona?.prioriza_consumo || false
+          },
+          
+          // Contexto del dispositivo (datos efímeros del navegador)
           context: contextData ? {
+            tipo_dispositivo: contextData.device_type || 'desktop',
+            navegador: contextData.browser_name || 'unknown',
+            sistema_operativo: contextData.os_name || 'unknown'
+          } : {
             tipo_dispositivo: 'desktop',
             navegador: 'unknown',
             sistema_operativo: 'unknown'
-          } : undefined,
-          persona: personaData?.persona ? {
-            nombre: personaData.persona.nombre,
-            tipo_cliente: personaData.persona.tipo_cliente,
-            edad: personaData.persona.edad,
-            region: personaData.persona.region
+          },
+          
+          // Info de la Persona para contexto adicional
+          persona: sourcePersona ? {
+            nombre: sourcePersona.nombre,
+            tipo_cliente: sourcePersona.tipo_cliente,
+            edad: sourcePersona.edad,
+            region: sourcePersona.region
           } : undefined
         };
+
+        console.log('[Efimero] 📊 Params construidos:', {
+          source: sourcePersona ? 'Persona seleccionada' : sourceUser ? 'User autenticado' : 'Defaults',
+          personaName: sourcePersona ? `${sourcePersona.nombre} ${sourcePersona.apellido}` : 'N/A',
+          tipoCliente: params.user.tipo_cliente,
+          edad: params.user.edad,
+          preferencias: {
+            color: params.preferences.color_favorito,
+            densidad: params.preferences.densidad_informacion,
+            animaciones: params.preferences.nivel_animaciones,
+            layout: params.preferences.preferencia_layout
+          }
+        });
 
         console.log('[Efimero] Params ready, calling generateUI...');
         const result = await generateUI(params);
@@ -155,21 +241,22 @@ export default function EfimeroPage() {
     generateEfimeroLayout();
   }, [user, contextData, personaData, retryCount, generatedUI, generateUI, geminiError, apiKeyError]);
 
-  useEffect(() => {
-    if (!generatedUI) {
-      return;
-    }
+  // NO navegar a otra página - renderizar aquí mismo
+  // useEffect(() => {
+  //   if (!generatedUI) {
+  //     return;
+  //   }
 
-    if (hasNavigatedRef.current) {
-      return;
-    }
+  //   if (hasNavigatedRef.current) {
+  //     return;
+  //   }
 
-    console.log('[Efimero] 🚀 Navigating to /efimerocompleto (UI ready)');
-    hasNavigatedRef.current = true;
-    hasGeneratedRef.current = true;
-    router.prefetch('/efimerocompleto');
-    router.push('/efimerocompleto');
-  }, [generatedUI, router]);
+  //   console.log('[Efimero] 🚀 Navigating to /efimerocompleto (UI ready)');
+  //   hasNavigatedRef.current = true;
+  //   hasGeneratedRef.current = true;
+  //   router.prefetch('/efimerocompleto');
+  //   router.push('/efimerocompleto');
+  // }, [generatedUI, router]);
 
   // Timeout de seguridad - si loading dura más de 30 segundos, mostrar error
   useEffect(() => {
@@ -184,6 +271,38 @@ export default function EfimeroPage() {
     
     return () => clearTimeout(timeout);
   }, [loading]);
+
+  // Si ya tenemos UI generada, renderizarla directamente
+  if (generatedUI && !loading) {
+    console.log('[Efimero] ✅ Rendering generated UI');
+    
+    // Extraer el color favorito de la persona para usarlo en el botón
+    const personaColor = personaData?.persona?.color_favorito || '#06B6D4';
+    
+    return (
+      <>
+        {/* Botón de volver - FUERA del contenedor para evitar conflictos */}
+        <div className="fixed top-4 left-4 z-50">
+          <Link
+            href="/demo"
+            className="inline-flex items-center gap-2 px-4 py-2 backdrop-blur-sm text-white rounded-lg transition-all shadow-lg"
+            style={{ 
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              border: `2px solid ${personaColor}`
+            }}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Volver a Demo
+          </Link>
+        </div>
+
+        {/* HTML generado por Gemini - Con Tailwind CSS aplicado */}
+        <div className="w-full" dangerouslySetInnerHTML={{ __html: generatedUI.html }} />
+      </>
+    );
+  }
 
   if (loading) {
     return (

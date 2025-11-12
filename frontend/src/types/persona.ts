@@ -15,13 +15,25 @@ export interface PersonaSimulada {
   presupuesto: string | null;
   tiene_vehiculo_actual: boolean;
   tamano_flota: number | null;
+  
+  // Preferencias visuales completas (11 campos)
   esquema_colores: string | null;
   color_favorito: string | null;
-  estilo_tipografia: string | null;
   densidad_informacion: string | null;
+  estilo_tipografia: string | null;
+  estilo_imagenes: string | null;
   nivel_animaciones: string | null;
   preferencia_layout: string | null;
   estilo_navegacion: string | null;
+  preferencia_visual: string | null;
+  modo_comparacion: string | null;
+  idioma_specs: string | null;
+  
+  // Prioridades (booleanos)
+  prioriza_precio: boolean | null;
+  prioriza_tecnologia: boolean | null;
+  prioriza_consumo: boolean | null;
+  
   descripcion: string | null;
 }
 

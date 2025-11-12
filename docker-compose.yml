@@ -36,7 +36,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_GEMINI_API_KEY=AIzaSyDmTRpiiVF7RGr8X8VnfCzeObff3zMqngo
+        - NEXT_PUBLIC_GEMINI_API_KEY=${GEMINI_API_KEY}
         - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
         - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
     ports:
@@ -47,7 +47,7 @@ services:
       - NODE_ENV=production
       - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
       - INTERNAL_API_URL=http://backend:8000/api/v1
-      - NEXT_PUBLIC_GEMINI_API_KEY=AIzaSyDmTRpiiVF7RGr8X8VnfCzeObff3zMqngo
+      - NEXT_PUBLIC_GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./frontend/public:/app/public
     depends_on:

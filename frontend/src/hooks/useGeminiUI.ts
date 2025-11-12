@@ -63,6 +63,7 @@ const SESSION_STORAGE_KEY = 'efimero_ui_cache_v1';
 export function useGeminiUI() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiKeyError, setApiKeyError] = useState(false); // Nueva bandera para API key inválida
   const [generatedUI, setGeneratedUI] = useState<GeneratedUI | null>(() => {
     if (typeof window === 'undefined') {
       return null;
@@ -341,6 +342,18 @@ Genera el HTML ahora:
         const errorData = await response.json();
         console.error('[useGeminiUI] API Error:', errorData);
         
+        // Detectar API key inválida o leaked
+        const errorMessage = errorData.error?.message || '';
+        if (errorMessage.includes('API key') && (errorMessage.includes('leaked') || errorMessage.includes('invalid'))) {
+          console.error('[useGeminiUI] ❌ API Key inválida o comprometida');
+          setApiKeyError(true);
+          setError('API key inválida o comprometida. Por favor, configura una nueva API key en las variables de entorno.');
+          
+          // NO usar fallback - mostrar error crítico
+          setLoading(false);
+          return null;
+        }
+        
         // Si es error 429 (rate limit), usar fallback
         if (response.status === 429) {
           console.warn('[useGeminiUI] Rate limit reached, using fallback UI');
@@ -352,7 +365,7 @@ Genera el HTML ahora:
           return fallback;
         }
         
-        throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+        throw new Error(`Gemini API error: ${errorMessage || response.statusText}`);
       }
 
       const data = await response.json();
@@ -450,6 +463,7 @@ Genera el HTML ahora:
     generateUI,
     loading,
     error,
-    generatedUI
+    generatedUI,
+    apiKeyError
   };
 }

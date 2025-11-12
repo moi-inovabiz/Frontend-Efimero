@@ -23,7 +23,7 @@ export default function EfimeroPage() {
   const { user, isAuthenticated } = useAuth();
   const contextData = useEphemeralContext();
   const personaData = usePersona();
-  const { generateUI, loading, error: geminiError, generatedUI } = useGeminiUI();
+  const { generateUI, loading, error: geminiError, generatedUI, apiKeyError } = useGeminiUI();
   
   const [renderError, setRenderError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -34,16 +34,34 @@ export default function EfimeroPage() {
   const isGeneratingRef = useRef(false);
   const hasGeneratedRef = useRef(false);
   const hasNavigatedRef = useRef(false);
+  const hasErroredRef = useRef(false); // Nueva ref para evitar loops en errores
 
   const handleRetry = () => {
     console.log('[Efimero] Manual retry triggered');
     hasGeneratedRef.current = false; // Reset la bandera
     isGeneratingRef.current = false;
     hasNavigatedRef.current = false;
+    hasErroredRef.current = false; // Reset error flag
+    setRenderError(null);
     setRetryCount(prev => prev + 1);
   };
 
   useEffect(() => {
+    // Si hay error de API key, no intentar de nuevo (evitar loop)
+    if (apiKeyError || hasErroredRef.current) {
+      console.log('[Efimero] ⛔ API Key error detected - stopping retry loop');
+      hasErroredRef.current = true;
+      return;
+    }
+
+    // Si hay cualquier error de Gemini, no reintentar automáticamente
+    if (geminiError && !hasErroredRef.current) {
+      console.log('[Efimero] ⚠️ Gemini error detected:', geminiError);
+      hasErroredRef.current = true;
+      setRenderError(geminiError);
+      return;
+    }
+    
     // Si ya tenemos UI generada (por cache) no volver a disparar generación
     if (generatedUI) {
       if (!hasGeneratedRef.current) {
@@ -120,21 +138,22 @@ export default function EfimeroPage() {
         if (result) {
           console.log('[Efimero] ✅ Generation completed successfully');
           hasGeneratedRef.current = true;
+          hasErroredRef.current = false; // Reset error si funciona
         } else {
           console.log('[Efimero] ⚠️ generateUI returned null');
-          hasGeneratedRef.current = false;
+          hasErroredRef.current = true; // Evitar loop si retorna null
         }
       } catch (err) {
         console.error('[Efimero] ❌ Error generating efimero layout:', err);
         setRenderError('No se pudo generar el layout personalizado');
-        hasGeneratedRef.current = false;
+        hasErroredRef.current = true; // Evitar loop en catch
       } finally {
         isGeneratingRef.current = false;
       }
     };
 
     generateEfimeroLayout();
-  }, [user, contextData, personaData, retryCount, generatedUI, loading, generateUI]);
+  }, [user, contextData, personaData, retryCount, generatedUI, generateUI, geminiError, apiKeyError]);
 
   useEffect(() => {
     if (!generatedUI) {
@@ -216,18 +235,56 @@ export default function EfimeroPage() {
 
   const error = geminiError || renderError;
 
-  if (error) {
+  if (error || apiKeyError) {
+    const isApiKeyIssue = apiKeyError || (error && (error.includes('API key') || error.includes('leaked')));
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-900 via-orange-900 to-yellow-900 p-8">
-        <div className="max-w-2xl bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-red-500/50">
+        <div className="max-w-3xl bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-red-500/50">
           <div className="text-center">
-            <span className="text-6xl mb-4 block">⚠️</span>
-            <h2 className="text-3xl font-bold text-white mb-4">Error al generar frontend</h2>
+            <span className="text-6xl mb-4 block">{isApiKeyIssue ? '🔑' : '⚠️'}</span>
+            <h2 className="text-3xl font-bold text-white mb-4">
+              {isApiKeyIssue ? 'API Key Comprometida' : 'Error al generar frontend'}
+            </h2>
             <p className="text-red-300 mb-6">{error}</p>
             
+            {isApiKeyIssue && (
+              <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6 mb-6 text-left">
+                <h3 className="text-lg font-bold text-yellow-300 mb-3">🔒 Solución:</h3>
+                <ol className="space-y-2 text-sm text-white/90">
+                  <li className="flex gap-2">
+                    <span className="font-bold">1.</span>
+                    <span>Ve a <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-blue-300 underline hover:text-blue-200">Google AI Studio</a></span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">2.</span>
+                    <span>Crea una nueva API key de Gemini</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">3.</span>
+                    <span>Edita el archivo <code className="px-2 py-1 bg-black/40 rounded text-yellow-300">frontend/.env.local</code></span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">4.</span>
+                    <span>Reemplaza <code className="px-2 py-1 bg-black/40 rounded text-yellow-300">NEXT_PUBLIC_GEMINI_API_KEY=TU_NUEVA_KEY</code></span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-bold">5.</span>
+                    <span>Reinicia el servidor con <code className="px-2 py-1 bg-black/40 rounded text-yellow-300">npm run dev</code></span>
+                  </li>
+                </ol>
+                <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded">
+                  <p className="text-xs text-yellow-200">
+                    ⚠️ <strong>Importante:</strong> Nunca compartas tu API key en repositorios públicos. 
+                    La actual fue deshabilitada por Google por estar expuesta en Git.
+                  </p>
+                </div>
+              </div>
+            )}
+            
             <div className="bg-black/30 rounded-lg p-4 mb-6 text-left">
-              <p className="text-sm text-yellow-300 font-mono">
-                {geminiError || 'Error desconocido'}
+              <p className="text-sm text-yellow-300 font-mono break-all">
+                {geminiError || renderError || 'Error desconocido'}
               </p>
             </div>
             
@@ -238,12 +295,14 @@ export default function EfimeroPage() {
               >
                 ← Volver al Demo
               </Link>
-              <button
-                onClick={() => globalThis.location.reload()}
-                className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
-              >
-                🔄 Reintentar
-              </button>
+              {!isApiKeyIssue && (
+                <button
+                  onClick={handleRetry}
+                  className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
+                >
+                  🔄 Reintentar
+                </button>
+              )}
             </div>
           </div>
         </div>
